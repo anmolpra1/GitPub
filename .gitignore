@@ -1,0 +1,37 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Next.js
+.next/
+out/
+
+# TypeScript/Build Outputs
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Go
+services/gateway/gateway
+
+# Database & CI workspaces (ignored to avoid committing repos/db data)
+data/
+scratch/
+postgres-data/
+pgdata/
+
+# Environment configs
+.env
+.env.local
+.env.production
+.env.development
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# User specific command references
+IDEcmd.md
+

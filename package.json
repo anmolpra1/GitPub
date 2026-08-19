@@ -1,0 +1,10 @@
+{
+  "name": "gitpub-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "api:dev": "npm run dev --prefix services/api",
+    "web:dev": "npm run dev --prefix apps/web",
+    "web:build": "npm run build --prefix apps/web"
+  }
+}
