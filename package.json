@@ -6,5 +6,9 @@
     "api:dev": "npm run dev --prefix services/api",
     "web:dev": "npm run dev --prefix apps/web",
     "web:build": "npm run build --prefix apps/web"
+  },
+  "dependencies": {
+    "do": "^0.7.1",
+    "dotenv": "^17.4.2"
   }
 }

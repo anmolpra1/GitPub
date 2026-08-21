@@ -32,8 +32,14 @@ func main() {
 		reposRoot = absReposRoot
 	}
 
+	apiURL := os.Getenv("API_URL")
+	if apiURL == "" {
+		apiURL = "http://localhost:8080"
+	}
+
 	log.Printf("Starting GitPub Protocol Gateway on port %s", port)
 	log.Printf("Repositories root directory set to: %s", reposRoot)
+	log.Printf("REST API URL set to: %s", apiURL)
 
 	// Single central handler that parses routes manually for backward & forward compatibility
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +67,33 @@ func main() {
 			repo = repo + ".git"
 		}
 
+		// Determine Git action for authentication and authorization check
+		var gitAction string
+		switch action {
+		case "info/refs":
+			service := r.URL.Query().Get("service")
+			if service == "git-upload-pack" {
+				gitAction = "pull"
+			} else if service == "git-receive-pack" {
+				gitAction = "push"
+			} else {
+				http.Error(w, "Unsupported service parameter", http.StatusForbidden)
+				return
+			}
+		case "git-upload-pack":
+			gitAction = "pull"
+		case "git-receive-pack":
+			gitAction = "push"
+		default:
+			http.Error(w, "Not Found", http.StatusNotFound)
+			return
+		}
+
+		// Perform authentication and RBAC checks via REST API
+		if !smarthttp.VerifyGitAuth(w, r, apiURL, owner, repo, gitAction) {
+			return
+		}
+
 		switch action {
 		case "info/refs":
 			if r.Method != http.MethodGet {
@@ -72,8 +105,6 @@ func main() {
 				smarthttp.HandleUploadPackInfoRefs(w, reposRoot, owner, repo)
 			} else if service == "git-receive-pack" {
 				smarthttp.HandleReceivePackInfoRefs(w, reposRoot, owner, repo)
-			} else {
-				http.Error(w, "Unsupported service parameter", http.StatusForbidden)
 			}
 
 		case "git-upload-pack":
@@ -89,9 +120,6 @@ func main() {
 				return
 			}
 			smarthttp.HandleReceivePack(w, r, reposRoot, owner, repo)
-
-		default:
-			http.Error(w, "Not Found", http.StatusNotFound)
 		}
 	})
 

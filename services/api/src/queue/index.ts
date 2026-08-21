@@ -97,6 +97,9 @@ export const ciWorker = new Worker(
 
       // 5. Spawn isolated Docker container to execute commands
       // Mount the workspace read-write so scripts can run npm install, compile files, etc.
+      // Convert Windows backslashes to forward slashes for Docker volume mapping compatibility
+      const normalizedMountPath = tempWorkspacePath.replace(/\\/g, '/');
+
       const dockerArgs = [
         'run', '--rm',
         '--user', '1000:1000', // Matches pre-defined 'node' user inside node:20-slim
@@ -104,7 +107,7 @@ export const ciWorker = new Worker(
         '--security-opt=no-new-privileges',
         '--memory=512m', '--cpus=1.0',
         '--network', 'none', // No internet access for security
-        '-v', `${tempWorkspacePath}:/workspace`,
+        '-v', `${normalizedMountPath}:/workspace`,
         'gitpub-ci-runner:latest',
         'sh', '-c', `cd /workspace && ${commandString}`
       ];

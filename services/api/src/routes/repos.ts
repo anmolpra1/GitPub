@@ -93,27 +93,12 @@ router.get('/', authenticateJWT, async (req: AuthenticatedRequest, res: Response
 router.post('/verify-git-auth', async (req, res) => {
   const { username, password, owner, repo, action } = req.body; // action: 'push' or 'pull'
 
-  if (!username || !password || !owner || !repo || !action) {
-    return res.status(400).json({ error: 'Missing authentication parameters' });
+  if (!owner || !repo || !action) {
+    return res.status(400).json({ error: 'Missing owner, repo, or action parameters' });
   }
 
   try {
-    // 1. Authenticate user using username and PAT
-    const userResult = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
-    const user = userResult.rows[0];
-
-    if (!user || !user.pat_hash) {
-      return res.status(401).json({ authenticated: false, error: 'Invalid username or token' });
-    }
-
-    // Hash incoming password (PAT) with SHA-256 and compare
-    const incomingPatHash = crypto.createHash('sha256').update(password).digest('hex');
-    if (incomingPatHash !== user.pat_hash) {
-      return res.status(401).json({ authenticated: false, error: 'Invalid username or token' });
-    }
-
-    // 2. Authorize repository access
-    // Fetch repository
+    // 1. Fetch repository first to determine visibility
     const repoResult = await pool.query(
       `SELECT r.*, u.username as owner_name 
        FROM repositories r 
@@ -124,21 +109,49 @@ router.post('/verify-git-auth', async (req, res) => {
     const repository = repoResult.rows[0];
 
     if (!repository) {
-      return res.status(404).json({ authenticated: false, error: 'Repository not found' });
+      return res.status(404).json({ authenticated: false, authorized: false, error: 'Repository not found' });
     }
 
-    // Access check:
-    // - Private repo: Must be the owner (in basic model)
-    // - Public repo: Anyone can pull, only owner can push
+    // 2. Handle anonymous requests (no credentials supplied)
+    if (!username || !password) {
+      if (action === 'pull') {
+        if (!repository.is_private) {
+          // Public repository: allow anonymous pull
+          return res.json({ authenticated: false, authorized: true });
+        } else {
+          // Private repository: require authentication
+          return res.status(401).json({ authenticated: false, authorized: false, error: 'Authentication required: Repository is private' });
+        }
+      } else {
+        // Push action: always require authentication
+        return res.status(401).json({ authenticated: false, authorized: false, error: 'Authentication required: Push denied' });
+      }
+    }
+
+    // 3. Authenticate user if credentials are provided
+    const userResult = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    const user = userResult.rows[0];
+
+    if (!user || !user.pat_hash) {
+      return res.status(401).json({ authenticated: false, authorized: false, error: 'Invalid username or token' });
+    }
+
+    // Hash incoming password (PAT) with SHA-256 and compare
+    const incomingPatHash = crypto.createHash('sha256').update(password).digest('hex');
+    if (incomingPatHash !== user.pat_hash) {
+      return res.status(401).json({ authenticated: false, authorized: false, error: 'Invalid username or token' });
+    }
+
+    // 4. Authorize repository access for authenticated user
     const isOwner = repository.owner_id === user.id;
 
     if (action === 'push') {
       if (!isOwner) {
-        return res.status(403).json({ authenticated: false, authorized: false, error: 'Push denied: You do not own this repository' });
+        return res.status(403).json({ authenticated: true, authorized: false, error: 'Push denied: You do not own this repository' });
       }
     } else if (action === 'pull') {
       if (repository.is_private && !isOwner) {
-        return res.status(403).json({ authenticated: false, authorized: false, error: 'Pull denied: Repository is private' });
+        return res.status(403).json({ authenticated: true, authorized: false, error: 'Pull denied: Repository is private' });
       }
     }
 
