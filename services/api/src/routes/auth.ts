@@ -4,8 +4,10 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import pool from '../db';
 import { authenticateJWT, AuthenticatedRequest, JWT_SECRET } from '../middleware/auth';
+import { OAuth2Client } from 'google-auth-library';
 
 const router = Router();
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Register Route
 router.post('/register', async (req, res) => {
@@ -108,6 +110,90 @@ router.post('/pat', authenticateJWT, async (req: AuthenticatedRequest, res: Resp
   } catch (error) {
     console.error('Error generating PAT:', error);
     res.status(500).json({ error: 'Failed to generate Personal Access Token' });
+  }
+});
+
+// Google Sign-In Route
+router.post('/google', async (req, res) => {
+  const { credential } = req.body;
+
+  if (!credential) {
+    return res.status(400).json({ error: 'Google credential (ID Token) is required' });
+  }
+
+  try {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      console.warn('Warning: GOOGLE_CLIENT_ID is not configured on the server.');
+      return res.status(500).json({ error: 'Google Sign-in is not configured on the server (missing GOOGLE_CLIENT_ID).' });
+    }
+
+    // Verify Google ID Token
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: clientId,
+    });
+    
+    const payload = ticket.getPayload();
+    if (!payload || !payload.email) {
+      return res.status(400).json({ error: 'Invalid Google token payload' });
+    }
+
+    const { email, name } = payload;
+    
+    // Derive a unique username
+    let username = (name || email.split('@')[0])
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '_')
+      .slice(0, 30);
+
+    if (!username) {
+      username = 'user_' + crypto.randomBytes(4).toString('hex');
+    }
+
+    // Check if user exists in database
+    let userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    let user = userResult.rows[0];
+
+    if (!user) {
+      // Check username availability
+      const usernameCheck = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+      if (usernameCheck.rows[0]) {
+        username = `${username}_${crypto.randomBytes(3).toString('hex')}`;
+      }
+
+      // Generate a strong random password hash so password logins are secured
+      const secureRandomPassword = crypto.randomBytes(32).toString('hex');
+      const passwordHash = await argon2.hash(secureRandomPassword);
+
+      // Insert new user
+      const insertResult = await pool.query(
+        'INSERT INTO users (username, email, password_hash) VALUES ($1, $2, $3) RETURNING id, username, email, created_at',
+        [username, email, passwordHash]
+      );
+      user = insertResult.rows[0];
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: user.id, username: user.username, email: user.email },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      message: 'Google login successful',
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email
+      }
+    });
+
+  } catch (error) {
+    console.error('Google login verification error:', error);
+    res.status(401).json({ error: 'Failed to verify Google ID token' });
   }
 });
 

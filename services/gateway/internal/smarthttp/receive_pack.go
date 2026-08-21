@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os/exec"
 	"path/filepath"
-	"strings"
 )
 
 // HandleReceivePackInfoRefs handles GET requests for /info/refs?service=git-receive-pack
