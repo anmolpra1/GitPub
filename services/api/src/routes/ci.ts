@@ -133,4 +133,78 @@ router.get('/:id', authenticateJWT, async (req: AuthenticatedRequest, res: Respo
   }
 });
 
+// POST /api/ci/internal/on-push - Internal hook triggered by Protocol Gateway on successful push
+router.post('/internal/on-push', async (req, res) => {
+  const { owner, repo } = req.body;
+  if (!owner || !repo) {
+    return res.status(400).json({ error: 'owner and repo are required' });
+  }
+
+  const cleanRepoName = repo.replace(/\.git$/, '');
+  const repoPath = path.join(REPOS_ROOT, owner, `${cleanRepoName}.git`);
+
+  try {
+    // 1. Resolve repository in database
+    const repoResult = await pool.query(
+      `SELECT r.*, u.username as owner_name 
+       FROM repositories r 
+       JOIN users u ON r.owner_id = u.id 
+       WHERE u.username = $1 AND r.name = $2`,
+      [owner, cleanRepoName]
+    );
+    const repository = repoResult.rows[0];
+    if (!repository) {
+      return res.status(404).json({ error: 'Repository not found in DB' });
+    }
+
+    if (!fs.existsSync(repoPath)) {
+      return res.status(404).json({ error: 'Repository files not found on disk' });
+    }
+
+    // 2. Identify the latest pushed commit hash and branch name
+    const { stdout } = await execAsync(
+      `git for-each-ref --sort=-committerdate --count=1 --format="%(objectname) %(refname:short)" refs/heads/`,
+      { cwd: repoPath }
+    );
+    const [commitHash, branchName] = stdout.trim().split(' ');
+    if (!commitHash) {
+      return res.status(400).json({ error: 'No commits found in repository' });
+    }
+
+    // 3. Check if .gitpub-ci.yml exists for this commit
+    try {
+      await execAsync(`git show "${commitHash}:.gitpub-ci.yml"`, { cwd: repoPath });
+    } catch {
+      console.log(`[CI Trigger] Commit ${commitHash} on ${owner}/${cleanRepoName} has no .gitpub-ci.yml. Skipping CI.`);
+      return res.json({ message: 'No .gitpub-ci.yml found; CI skipped', skipped: true });
+    }
+
+    // 4. Create pending CI run record
+    const dbResult = await pool.query(
+      `INSERT INTO ci_runs (repo_id, commit_hash, status, log) 
+       VALUES ($1, $2, 'pending', '') 
+       RETURNING *`,
+      [repository.id, commitHash]
+    );
+    const ciRun = dbResult.rows[0];
+
+    // 5. Enqueue into BullMQ
+    await ciQueue.add('run', {
+      runId: ciRun.id,
+      repoPath,
+      commitHash,
+      branchName
+    });
+
+    console.log(`[CI Trigger] Auto-queued CI Run #${ciRun.id} for commit ${commitHash} (${owner}/${cleanRepoName})`);
+    res.status(201).json({
+      message: 'Automatic CI run queued',
+      ciRun
+    });
+  } catch (err: any) {
+    console.error('Error in on-push hook:', err);
+    res.status(500).json({ error: err.message || 'Internal error processing push hook' });
+  }
+});
+
 export default router;

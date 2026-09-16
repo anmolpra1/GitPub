@@ -119,7 +119,7 @@ func main() {
 				http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 				return
 			}
-			smarthttp.HandleReceivePack(w, r, reposRoot, owner, repo)
+			smarthttp.HandleReceivePack(w, r, reposRoot, owner, repo, apiURL)
 		}
 	})
 

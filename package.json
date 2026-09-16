@@ -4,8 +4,12 @@
   "private": true,
   "scripts": {
     "api:dev": "npm run dev --prefix services/api",
+    "api:check": "cmd /c \"cd services\\api && npx tsc --noEmit\"",
+    "gateway:dev": "cmd /c \"cd services\\gateway && go run cmd\\server\\main.go\"",
+    "gateway:build": "cmd /c \"cd services\\gateway && go build -o bin\\gateway.exe cmd\\server\\main.go\"",
     "web:dev": "npm run dev --prefix apps/web",
-    "web:build": "npm run build --prefix apps/web"
+    "web:build": "npm run build --prefix apps/web",
+    "web:check": "cmd /c \"cd apps\\web && npx tsc --noEmit\""
   },
   "dependencies": {
     "do": "^0.7.1",

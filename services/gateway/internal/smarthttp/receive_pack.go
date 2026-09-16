@@ -1,8 +1,11 @@
 package smarthttp
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os/exec"
 	"path/filepath"
@@ -28,7 +31,7 @@ func HandleReceivePackInfoRefs(w http.ResponseWriter, reposRoot, owner, repo str
 }
 
 // HandleReceivePack handles POST requests for /git-receive-pack (git push)
-func HandleReceivePack(w http.ResponseWriter, r *http.Request, reposRoot, owner, repo string) {
+func HandleReceivePack(w http.ResponseWriter, r *http.Request, reposRoot, owner, repo, apiURL string) {
 	repoPath := filepath.Join(reposRoot, owner, repo)
 
 	w.Header().Set("Content-Type", "application/x-git-receive-pack-result")
@@ -62,5 +65,32 @@ func HandleReceivePack(w http.ResponseWriter, r *http.Request, reposRoot, owner,
 
 	// Stream stdout of git process back to HTTP response
 	_, _ = io.Copy(w, stdout)
-	_ = cmd.Wait()
+	waitErr := cmd.Wait()
+
+	// If push completed successfully and apiURL is provided, notify API to check for CI
+	if waitErr == nil && apiURL != "" {
+		go triggerOnPushCI(apiURL, owner, repo)
+	}
+}
+
+// triggerOnPushCI sends an asynchronous HTTP POST notification to GitPub API to trigger CI if configured
+func triggerOnPushCI(apiURL, owner, repo string) {
+	payload := map[string]string{
+		"owner": owner,
+		"repo":  repo,
+	}
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[CI Trigger] Failed to marshal push payload: %v", err)
+		return
+	}
+
+	hookURL := fmt.Sprintf("%s/api/ci/internal/on-push", apiURL)
+	resp, err := http.Post(hookURL, "application/json", bytes.NewBuffer(jsonBytes))
+	if err != nil {
+		log.Printf("[CI Trigger] Failed to notify API on-push hook at %s: %v", hookURL, err)
+		return
+	}
+	defer resp.Body.Close()
+	log.Printf("[CI Trigger] Push event for %s/%s delivered to %s (status: %d)", owner, repo, hookURL, resp.StatusCode)
 }

@@ -15,6 +15,9 @@ next-env.d.ts
 
 # Go
 services/gateway/gateway
+services/gateway/bin/
+bin/
+*.exe
 
 # Database & CI workspaces (ignored to avoid committing repos/db data)
 data/

@@ -37,7 +37,10 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Import and mount routers (to be implemented)
+// Import BullMQ queue and worker
+import './queue';
+
+// Import and mount routers
 import authRouter from './routes/auth';
 import reposRouter from './routes/repos';
 import pullsRouter from './routes/pulls';

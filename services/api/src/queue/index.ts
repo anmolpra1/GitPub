@@ -95,45 +95,116 @@ export const ciWorker = new Worker(
 
       await updateRun(runId, 'running', `[CI System] Launching sandboxed test runner...\n\n`);
 
-      // 5. Spawn isolated Docker container to execute commands
-      // Mount the workspace read-write so scripts can run npm install, compile files, etc.
-      // Convert Windows backslashes to forward slashes for Docker volume mapping compatibility
+      // 5. Check Docker daemon availability and auto-build runner if missing
+      let dockerAvailable = false;
+      try {
+        await execAsync('docker info');
+        dockerAvailable = true;
+      } catch {
+        dockerAvailable = false;
+      }
+
+      if (dockerAvailable) {
+        // Check if gitpub-ci-runner:latest exists, if not build it
+        try {
+          await execAsync('docker image inspect gitpub-ci-runner:latest');
+        } catch {
+          await updateRun(runId, 'running', `[CI System] Building gitpub-ci-runner:latest image...\n`);
+          const dockerRunnerDir = path.resolve(__dirname, '..', '..', '..', '..', 'infra', 'docker-runner');
+          await execAsync(`docker build -t gitpub-ci-runner:latest "${dockerRunnerDir}"`);
+          await updateRun(runId, 'running', `[CI System] Sandbox runner image ready.\n\n`);
+        }
+      }
+
       const normalizedMountPath = tempWorkspacePath.replace(/\\/g, '/');
+
+      if (!dockerAvailable) {
+        const fallbackAllowed = process.env.ALLOW_LOCAL_CI_FALLBACK === 'true';
+        if (!fallbackAllowed) {
+          await updateRun(
+            runId,
+            'failed',
+            `[CI System Error] Docker daemon is offline or unreachable.\nPlease start Docker Desktop to run sandboxed CI containers (or set ALLOW_LOCAL_CI_FALLBACK=true in .env for dev testing).\n`,
+            true
+          );
+          return;
+        }
+
+        await updateRun(runId, 'running', `[CI System Notice] Docker offline. Executing in local development fallback mode...\n\n`);
+        const fallbackProcess = spawn(process.platform === 'win32' ? 'cmd.exe' : 'sh', 
+          process.platform === 'win32' ? ['/c', commandString] : ['-c', commandString],
+          { cwd: tempWorkspacePath }
+        );
+
+        fallbackProcess.stdout.on('data', async (data) => {
+          await updateRun(runId, 'running', data.toString());
+        });
+
+        fallbackProcess.stderr.on('data', async (data) => {
+          await updateRun(runId, 'running', data.toString());
+        });
+
+        const exitCode = await new Promise<number>((resolve) => {
+          fallbackProcess.on('close', (code) => resolve(code ?? 0));
+          fallbackProcess.on('error', () => resolve(1));
+        });
+
+        if (exitCode === 0) {
+          await updateRun(runId, 'success', `\n[CI System] Build succeeded! (Exit code: 0)\n`, true);
+        } else {
+          await updateRun(runId, 'failed', `\n[CI System] Build failed with exit code ${exitCode}.\n`, true);
+        }
+        return;
+      }
 
       const dockerArgs = [
         'run', '--rm',
-        '--user', '1000:1000', // Matches pre-defined 'node' user inside node:20-slim
+        '--user', '1000:1000',
         '--cap-drop=ALL',
         '--security-opt=no-new-privileges',
-        '--memory=512m', '--cpus=1.0',
-        '--network', 'none', // No internet access for security
+        '--memory=1024m', '--cpus=1.0',
+        '--network', 'none',
         '-v', `${normalizedMountPath}:/workspace`,
         'gitpub-ci-runner:latest',
         'sh', '-c', `cd /workspace && ${commandString}`
       ];
 
-      const process = spawn('docker', dockerArgs);
+      const child = spawn('docker', dockerArgs);
 
-      // Handle streams and write output live to the DB
-      process.stdout.on('data', async (data) => {
+      // Watchdog timeout (10 minutes = 600s per SRS §6)
+      const timeoutMs = 600000;
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGKILL');
+        updateRun(runId, 'failed', `\n[CI System Error] Execution exceeded 10-minute timeout limit. Terminated.\n`, true);
+      }, timeoutMs);
+
+      child.stdout.on('data', async (data) => {
         await updateRun(runId, 'running', data.toString());
       });
 
-      process.stderr.on('data', async (data) => {
+      child.stderr.on('data', async (data) => {
         await updateRun(runId, 'running', data.toString());
       });
 
-      // Wait for process to exit
       const exitCode = await new Promise<number>((resolve) => {
-        process.on('close', (code) => {
+        child.on('close', (code) => {
+          clearTimeout(timer);
           resolve(code ?? 0);
+        });
+        child.on('error', () => {
+          clearTimeout(timer);
+          resolve(125);
         });
       });
 
-      if (exitCode === 0) {
-        await updateRun(runId, 'success', `\n[CI System] Build succeeded! (Exit code: 0)\n`, true);
-      } else {
-        await updateRun(runId, 'failed', `\n[CI System] Build failed with exit code ${exitCode}.\n`, true);
+      if (!timedOut) {
+        if (exitCode === 0) {
+          await updateRun(runId, 'success', `\n[CI System] Build succeeded! (Exit code: 0)\n`, true);
+        } else {
+          await updateRun(runId, 'failed', `\n[CI System] Build failed with exit code ${exitCode}.\n`, true);
+        }
       }
 
     } catch (buildError: any) {
