@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
@@ -20,7 +20,7 @@ router.post('/trigger', authenticateJWT, async (req: AuthenticatedRequest, res: 
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const { repoId, branchOrCommit } = req.body; // e.g., branchOrCommit = 'main' or a full SHA
+  const { repoId, branchOrCommit } = req.body;
   if (!repoId || !branchOrCommit) {
     return res.status(400).json({ error: 'repoId and branchOrCommit are required' });
   }
@@ -54,7 +54,7 @@ router.post('/trigger', authenticateJWT, async (req: AuthenticatedRequest, res: 
     try {
       const { stdout } = await execAsync(`git rev-parse "${branchOrCommit}"`, { cwd: repoPath });
       commitHash = stdout.trim();
-    } catch (gitErr) {
+    } catch {
       return res.status(400).json({ error: `Could not resolve reference '${branchOrCommit}' in Git repository` });
     }
 
@@ -134,7 +134,7 @@ router.get('/:id', authenticateJWT, async (req: AuthenticatedRequest, res: Respo
 });
 
 // POST /api/ci/internal/on-push - Internal hook triggered by Protocol Gateway on successful push
-router.post('/internal/on-push', async (req, res) => {
+router.post('/internal/on-push', async (req: Request, res: Response) => {
   const { owner, repo } = req.body;
   if (!owner || !repo) {
     return res.status(400).json({ error: 'owner and repo are required' });
