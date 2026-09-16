@@ -72,11 +72,12 @@ func main() {
 		switch action {
 		case "info/refs":
 			service := r.URL.Query().Get("service")
-			if service == "git-upload-pack" {
+			switch service {
+			case "git-upload-pack":
 				gitAction = "pull"
-			} else if service == "git-receive-pack" {
+			case "git-receive-pack":
 				gitAction = "push"
-			} else {
+			default:
 				http.Error(w, "Unsupported service parameter", http.StatusForbidden)
 				return
 			}
@@ -101,9 +102,10 @@ func main() {
 				return
 			}
 			service := r.URL.Query().Get("service")
-			if service == "git-upload-pack" {
+			switch service {
+			case "git-upload-pack":
 				smarthttp.HandleUploadPackInfoRefs(w, reposRoot, owner, repo)
-			} else if service == "git-receive-pack" {
+			case "git-receive-pack":
 				smarthttp.HandleReceivePackInfoRefs(w, reposRoot, owner, repo)
 			}
 
