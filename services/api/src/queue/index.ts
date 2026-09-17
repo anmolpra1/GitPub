@@ -67,19 +67,26 @@ export const ciWorker = new Worker(
       return;
     }
 
-    // 3. Parse commands from script block
-    const script = ciConfig?.script;
-    if (!script || !Array.isArray(script) || script.length === 0) {
+    // 3. Parse commands from script or steps block
+    let commands: string[] = [];
+    if (Array.isArray(ciConfig?.script)) {
+      commands = ciConfig.script.map((s: any) => typeof s === 'string' ? s : (s?.command || ''));
+    } else if (Array.isArray(ciConfig?.steps)) {
+      commands = ciConfig.steps.map((s: any) => typeof s === 'string' ? s : (s?.command || ''));
+    }
+    commands = commands.filter(Boolean);
+
+    if (commands.length === 0) {
       await updateRun(
         runId,
         'failed',
-        `[CI Error] Invalid configuration: 'script' list is missing or empty.\nBuild aborted.\n`,
+        `[CI Error] Invalid configuration: 'script' or 'steps' list is missing or empty.\nBuild aborted.\n`,
         true
       );
       return;
     }
 
-    const commandString = script.join(' && ');
+    const commandString = commands.join(' && ');
 
     // 4. Create temporary workspace for checkout
     const tempWorkspacePath = path.join(TEMP_CI_ROOT, `${runId}_${Date.now()}`);

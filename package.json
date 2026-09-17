@@ -9,7 +9,8 @@
     "gateway:build": "cmd /c \"cd services\\gateway && go build -o bin\\gateway.exe cmd\\server\\main.go\"",
     "web:dev": "npm run dev --prefix apps/web",
     "web:build": "npm run build --prefix apps/web",
-    "web:check": "cmd /c \"cd apps\\web && npx tsc --noEmit\""
+    "web:check": "cmd /c \"cd apps\\web && npx tsc --noEmit\"",
+    "test:smoke": "node scripts/e2e_verify.js"
   },
   "dependencies": {
     "do": "^0.7.1",
