@@ -1,0 +1,26 @@
+# fly.toml for GitPub Protocol Gateway
+app = "gitpub-gateway"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8081"
+  REPOS_ROOT = "/data/repos"
+
+[http_service]
+  internal_port = 8081
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[mounts]]
+  source = "gitpub_repos"
+  destination = "/data/repos"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

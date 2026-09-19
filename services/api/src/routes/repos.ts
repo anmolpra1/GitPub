@@ -50,10 +50,11 @@ router.post('/', authenticateJWT, async (req: AuthenticatedRequest, res: Respons
     // Execute git init --bare
     await execAsync(`git init --bare "${repoPath}"`);
 
+    const gatewayUrl = (process.env.GATEWAY_URL || 'http://localhost:8081').replace(/\/$/, '');
     res.status(201).json({
       message: 'Repository created successfully',
       repository: repo,
-      cloneUrl: `http://localhost:8081/${user.username}/${name}.git`
+      cloneUrl: `${gatewayUrl}/${user.username}/${name}.git`
     });
   } catch (error: any) {
     if (error.code === '23505') { // Unique constraint violation (owner_id, name)

@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GitPub — System Design (Interview-Ready)</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1a2e;
+    --accent: #f59e0b;
+    --accent-light: #fef3c7;
+    --border: #e5e7eb;
+    --code-bg: #f6f8fa;
+    --heading: #0f172a;
+    --muted: #64748b;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --info: #3b82f6;
+    --section-bg: #fafbfc;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.7;
+    font-size: 14px;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 50px;
+  }
+
+  /* Cover Page */
+  .cover {
+    text-align: center;
+    padding: 80px 0 60px;
+    border-bottom: 3px solid var(--accent);
+    margin-bottom: 40px;
+    page-break-after: always;
+  }
+  .cover h1 {
+    font-size: 42px;
+    font-weight: 800;
+    color: var(--heading);
+    margin-bottom: 8px;
+    letter-spacing: -1px;
+  }
+  .cover .subtitle {
+    font-size: 20px;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 24px;
+  }
+  .cover .tagline {
+    font-size: 16px;
+    color: var(--muted);
+    max-width: 600px;
+    margin: 0 auto 40px;
+  }
+  .cover .meta {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 30px;
+  }
+  .cover .badge {
+    display: inline-block;
+    background: var(--accent-light);
+    color: #92400e;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    margin: 4px;
+  }
+
+  /* TOC */
+  .toc {
+    background: var(--section-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 30px 40px;
+    margin-bottom: 40px;
+    page-break-after: always;
+  }
+  .toc h2 { font-size: 22px; margin-bottom: 16px; color: var(--heading); }
+  .toc ol { padding-left: 20px; }
+  .toc li { margin: 8px 0; font-size: 14px; }
+  .toc a { color: var(--info); text-decoration: none; font-weight: 500; }
+
+  /* Section Headings */
+  h1 { font-size: 32px; font-weight: 800; color: var(--heading); margin: 50px 0 20px; letter-spacing: -0.5px; border-bottom: 3px solid var(--accent); padding-bottom: 10px; }
+  h2 { font-size: 24px; font-weight: 700; color: var(--heading); margin: 40px 0 16px; border-bottom: 2px solid var(--border); padding-bottom: 8px; }
+  h3 { font-size: 18px; font-weight: 600; color: var(--heading); margin: 28px 0 12px; }
+  h4 { font-size: 15px; font-weight: 600; color: var(--muted); margin: 20px 0 10px; }
+
+  p { margin: 10px 0; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0 24px;
+    font-size: 13px;
+  }
+  th {
+    background: var(--heading);
+    color: white;
+    font-weight: 600;
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  th:first-child { border-radius: 8px 0 0 0; }
+  th:last-child { border-radius: 0 8px 0 0; }
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: var(--section-bg); }
+  tr:hover td { background: var(--accent-light); }
+
+  /* Code */
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12.5px;
+    color: #c7254e;
+  }
+  pre {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 20px;
+    border-radius: 10px;
+    overflow-x: auto;
+    margin: 16px 0;
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+  pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+  }
+
+  /* Mermaid Diagrams */
+  .mermaid {
+    text-align: center;
+    margin: 20px 0;
+    background: var(--section-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+
+  /* Callout Boxes */
+  .callout {
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 16px 0;
+    font-size: 13px;
+    border-left: 4px solid;
+  }
+  .callout-note { background: #eff6ff; border-color: var(--info); }
+  .callout-tip { background: #ecfdf5; border-color: var(--success); }
+  .callout-warning { background: #fffbeb; border-color: var(--warning); }
+  .callout-title { font-weight: 700; margin-bottom: 6px; font-size: 13px; }
+
+  /* Blockquotes */
+  blockquote {
+    border-left: 4px solid var(--accent);
+    padding: 12px 20px;
+    margin: 16px 0;
+    background: var(--accent-light);
+    border-radius: 0 8px 8px 0;
+    font-style: italic;
+    color: #92400e;
+  }
+  blockquote strong { font-style: normal; }
+
+  /* Lists */
+  ul, ol { padding-left: 24px; margin: 10px 0; }
+  li { margin: 6px 0; }
+
+  /* Horizontal Rule */
+  hr {
+    border: none;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--border));
+    margin: 40px 0;
+  }
+
+  /* Interview Cheat Sheet */
+  .interview-q {
+    background: #fef3c7;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 14px 0;
+  }
+  .interview-q .q {
+    font-weight: 700;
+    color: #92400e;
+    margin-bottom: 6px;
+    font-size: 14px;
+  }
+  .interview-q .a {
+    color: var(--fg);
+    font-size: 13px;
+  }
+
+  /* Section Numbers */
+  .section-num {
+    display: inline-block;
+    background: var(--accent);
+    color: white;
+    width: 30px;
+    height: 30px;
+    line-height: 30px;
+    text-align: center;
+    border-radius: 50%;
+    font-weight: 700;
+    font-size: 14px;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+
+  /* Print Styles */
+  @media print {
+    body { padding: 20px 30px; font-size: 11px; max-width: 100%; }
+    .cover { padding: 40px 0 30px; }
+    .cover h1 { font-size: 32px; }
+    h1 { font-size: 24px; margin: 30px 0 14px; }
+    h2 { font-size: 18px; margin: 24px 0 10px; }
+    h3 { font-size: 14px; }
+    table { font-size: 10.5px; }
+    th, td { padding: 6px 10px; }
+    pre { font-size: 10px; padding: 12px; }
+    .mermaid { padding: 10px; page-break-inside: avoid; }
+    .callout, blockquote, .interview-q { page-break-inside: avoid; }
+    h1, h2, h3 { page-break-after: avoid; }
+    table { page-break-inside: avoid; }
+    .no-print { display: none; }
+  }
+
+  /* Page Break Helpers */
+  .page-break { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<!-- ==================== COVER PAGE ==================== -->
+<div class="cover">
+  <h1>GitPub</h1>
+  <div class="subtitle">System Design Document</div>
+  <div class="tagline">
+    A modern, self-hosted Git Version Control System & CI/CD Sandbox Platform
+    built with microservice architecture.
+  </div>
+  <div>
+    <span class="badge">Go</span>
+    <span class="badge">Node.js</span>
+    <span class="badge">Next.js</span>
+    <span class="badge">PostgreSQL</span>
+    <span class="badge">Redis</span>
+    <span class="badge">Docker</span>
+    <span class="badge">BullMQ</span>
+  </div>
+  <div class="meta">
+    Interview-Ready &bull; Comprehensive &bull; Visual<br/>
+    Generated September 2026
+  </div>
+</div>
+
+<!-- ==================== TABLE OF CONTENTS ==================== -->
+<div class="toc">
+  <h2>📑 Table of Contents</h2>
+  <ol>
+    <li><a href="#s1">Project Description</a></li>
+    <li><a href="#s2">Functional Requirements</a></li>
+    <li><a href="#s3">Non-Functional Requirements</a>
+      <ol>
+        <li>Scalability</li>
+        <li>CAP Theorem Analysis</li>
+        <li>Latency Targets</li>
+        <li>Reliability &amp; Fault Tolerance</li>
+        <li>Security</li>
+      </ol>
+    </li>
+    <li><a href="#s4">Core Entities (ER Diagram)</a></li>
+    <li><a href="#s5">API Design (Mapped to FRs)</a></li>
+    <li><a href="#s6">High-Level Design (HLD)</a>
+      <ol>
+        <li>System Architecture</li>
+        <li>Git Push — End-to-End Sequence</li>
+        <li>Pull Request Merge Flow</li>
+      </ol>
+    </li>
+    <li><a href="#s7">Low-Level Design (LLD)</a>
+      <ol>
+        <li>Authentication System</li>
+        <li>Git Protocol Gateway</li>
+        <li>CI Pipeline Execution</li>
+        <li>PR Diff &amp; Merge Engine</li>
+      </ol>
+    </li>
+    <li><a href="#s8">Database Access Patterns &amp; Indexing</a></li>
+    <li><a href="#s9">Scaling Deep Dive (10x / 100x)</a></li>
+    <li><a href="#s10">Production Deployment Architecture</a></li>
+    <li><a href="#s11">Interview Cheat Sheet</a></li>
+  </ol>
+</div>
+
+<!-- ==================== SECTION 1 ==================== -->
+<h1 id="s1"><span class="section-num">1</span> Project Description</h1>
+
+<p><strong>GitPub</strong> is a modern, self-hosted <strong>Git version control system</strong> and <strong>CI/CD sandbox platform</strong> — essentially a simplified, self-hostable alternative to GitHub + GitHub Actions.</p>
+
+<h3>What does it do?</h3>
+<table>
+  <tr><th>Capability</th><th>Description</th></tr>
+  <tr><td><strong>Git Hosting</strong></td><td>Host Git repos on your own server. Clone, push, fetch using standard Git CLI over HTTP Smart Protocol.</td></tr>
+  <tr><td><strong>Authentication</strong></td><td>Multi-strategy auth: email/password (Argon2id), Google OAuth 2.0, and PATs for Git CLI.</td></tr>
+  <tr><td><strong>Repo Management</strong></td><td>Create public/private repos, browse file trees, view file contents via web dashboard.</td></tr>
+  <tr><td><strong>Pull Requests</strong></td><td>Open PRs between branches, view unified diffs, merge with conflict detection.</td></tr>
+  <tr><td><strong>CI/CD Pipelines</strong></td><td>Auto-build &amp; test code on every <code>git push</code> inside hardened Docker sandbox containers. Live-stream logs.</td></tr>
+  <tr><td><strong>Web Dashboard</strong></td><td>Next.js Bento Grid UI with Monaco Editor, diff viewer, and real-time CI console.</td></tr>
+</table>
+
+<h3>Why is this interesting from a system design perspective?</h3>
+<ul>
+  <li><strong>Streaming I/O</strong>: Git packfiles can be 50MB–1GB+. The system uses <code>io.Pipe</code> for zero-RAM buffering.</li>
+  <li><strong>Multi-language microservices</strong>: Go gateway (performance), Node.js API (productivity), Next.js frontend.</li>
+  <li><strong>Sandboxed execution</strong>: Running untrusted user code safely with Linux capability dropping, network isolation, memory limits.</li>
+  <li><strong>Event-driven architecture</strong>: Push events → message queue → async CI workers.</li>
+</ul>
+
+<hr/>
+
+<!-- ==================== SECTION 2 ==================== -->
+<h1 id="s2" class="page-break"><span class="section-num">2</span> Functional Requirements</h1>
+
+<table>
+  <tr><th>ID</th><th>Requirement</th><th>Category</th></tr>
+  <tr><td><strong>FR-1</strong></td><td>Users can register, login (email/password), and authenticate via Google OAuth</td><td>Auth</td></tr>
+  <tr><td><strong>FR-2</strong></td><td>Users can generate Personal Access Tokens (PAT) for Git CLI authentication</td><td>Auth</td></tr>
+  <tr><td><strong>FR-3</strong></td><td>Users can create public/private Git repositories</td><td>Repo Management</td></tr>
+  <tr><td><strong>FR-4</strong></td><td>Users can clone, push, and fetch repos using standard Git CLI</td><td>Git Protocol</td></tr>
+  <tr><td><strong>FR-5</strong></td><td>Users can browse repo file trees and view file contents via web UI</td><td>Repo Browsing</td></tr>
+  <tr><td><strong>FR-6</strong></td><td>Users can open Pull Requests between branches</td><td>PR Engine</td></tr>
+  <tr><td><strong>FR-7</strong></td><td>Users can view unified diffs for Pull Requests</td><td>PR Engine</td></tr>
+  <tr><td><strong>FR-8</strong></td><td>Repository owners can merge Pull Requests (with conflict detection)</td><td>PR Engine</td></tr>
+  <tr><td><strong>FR-9</strong></td><td>CI pipelines are automatically triggered on <code>git push</code></td><td>CI/CD</td></tr>
+  <tr><td><strong>FR-10</strong></td><td>Users can manually trigger CI runs on any branch/commit</td><td>CI/CD</td></tr>
+  <tr><td><strong>FR-11</strong></td><td>CI logs are streamed in real-time to the database and UI</td><td>CI/CD</td></tr>
+  <tr><td><strong>FR-12</strong></td><td>CI runs execute inside hardened, sandboxed Docker containers</td><td>CI/CD</td></tr>
+</table>
+
+<hr/>
+
+<!-- ==================== SECTION 3 ==================== -->
+<h1 id="s3" class="page-break"><span class="section-num">3</span> Non-Functional Requirements</h1>
+
+<h2>3.1 Scalability</h2>
+<table>
+  <tr><th>Aspect</th><th>Current Design</th><th>Scale Strategy</th></tr>
+  <tr><td><strong>Read-heavy traffic</strong> (clones/fetches)</td><td>Single Go gateway</td><td>Horizontal scaling: stateless Go gateway behind a load balancer. Repos on shared NFS/EFS.</td></tr>
+  <tr><td><strong>Write traffic</strong> (pushes)</td><td>Single writer</td><td>Shard repos by owner hash across storage nodes. Consistent hashing.</td></tr>
+  <tr><td><strong>CI job throughput</strong></td><td>Single BullMQ worker</td><td>Scale workers horizontally — each is stateless and pulls from Redis queue.</td></tr>
+  <tr><td><strong>Database</strong></td><td>Single PostgreSQL</td><td>Read replicas for dashboard. Vertical scaling for writes. Partition <code>ci_runs</code> by <code>created_at</code>.</td></tr>
+</table>
+
+<h2>3.2 CAP Theorem Analysis</h2>
+
+<div class="mermaid">
+flowchart TD
+    C["<strong>Consistency ✅ CHOSEN</strong><br/>Git refs must be linearizable.<br/>PostgreSQL = ACID guarantees."]
+    A["<strong>Availability ⚠️ Best-effort</strong><br/>Prefers errors over stale data<br/>during network partitions."]
+    P["<strong>Partition Tolerance ✅ REQUIRED</strong><br/>Microservice arch = partitions<br/>between Gateway ↔ API ↔ DB."]
+    
+    CAP["<strong>GitPub = CP System</strong>"]
+    
+    CAP --> C
+    CAP --> P
+    CAP -.->|"Sacrificed during<br/>partitions"| A
+
+    style C fill:#ecfdf5,stroke:#10b981,stroke-width:2px
+    style P fill:#ecfdf5,stroke:#10b981,stroke-width:2px
+    style A fill:#fffbeb,stroke:#f59e0b,stroke-width:2px
+    style CAP fill:#fef3c7,stroke:#f59e0b,stroke-width:3px
+</div>
+
+<blockquote><strong>Verdict: CP system.</strong> Git is inherently a CP system — refs must be consistent. We sacrifice availability during partitions rather than risk data corruption.</blockquote>
+
+<h2>3.3 Latency Targets</h2>
+<table>
+  <tr><th>Operation</th><th>Target</th><th>How Achieved</th></tr>
+  <tr><td>Git clone (small repo)</td><td>&lt; 500ms</td><td><code>io.Pipe</code> zero-copy streaming. Go goroutine-per-connection.</td></tr>
+  <tr><td>Git clone (500MB repo)</td><td>Stream-dependent</td><td>O(1) memory via <code>io.Pipe</code>. Latency = network bandwidth.</td></tr>
+  <tr><td>API CRUD operations</td><td>&lt; 100ms</td><td>PostgreSQL connection pooling (<code>pg.Pool</code>), indexed queries.</td></tr>
+  <tr><td>CI job start</td><td>&lt; 5s</td><td>BullMQ near-instant dequeue. Docker cold start ~2-3s.</td></tr>
+  <tr><td>CI log polling</td><td>5s intervals</td><td>Frontend polls <code>/api/ci/:id</code>. Could upgrade to WebSocket/SSE.</td></tr>
+  <tr><td>PR diff computation</td><td>&lt; 2s</td><td>Native <code>git diff</code> on bare repo — no clone needed.</td></tr>
+</table>
+
+<h2>3.4 Reliability &amp; Fault Tolerance</h2>
+<table>
+  <tr><th>Concern</th><th>Mitigation</th></tr>
+  <tr><td>CI runner crash</td><td>10-minute watchdog timeout with <code>SIGKILL</code>. Temp workspace cleaned in <code>finally</code> block.</td></tr>
+  <tr><td>Docker unavailable</td><td>Graceful fallback to local subprocess execution (dev mode only).</td></tr>
+  <tr><td>Database failure</td><td>Health check endpoint pings DB. Container orchestrator restarts on failure.</td></tr>
+  <tr><td>Orphaned containers</td><td><code>--rm</code> flag auto-destroys containers on exit.</td></tr>
+</table>
+
+<h2>3.5 Security</h2>
+<table>
+  <tr><th>Layer</th><th>Mechanism</th></tr>
+  <tr><td>Password storage</td><td>Argon2id (memory-hard, side-channel resistant)</td></tr>
+  <tr><td>Token storage</td><td>SHA-256 hashed PATs — plaintext never stored</td></tr>
+  <tr><td>JWT</td><td>HMAC-SHA256, 24h expiry</td></tr>
+  <tr><td>CI Sandbox</td><td><code>--cap-drop=ALL</code>, <code>--no-new-privileges</code>, <code>--network none</code>, <code>--memory=1024m</code>, <code>--cpus=1.0</code>, non-root user</td></tr>
+  <tr><td>RBAC</td><td>Owner-only push, owner-only merge, private repo access control</td></tr>
+</table>
+
+<hr/>
+
+<!-- ==================== SECTION 4 ==================== -->
+<h1 id="s4" class="page-break"><span class="section-num">4</span> Core Entities</h1>
+
+<div class="mermaid">
+erDiagram
+    USERS {
+        int id PK
+        varchar username UK
+        varchar email UK
+        varchar password_hash
+        varchar pat_hash
+        timestamp created_at
+    }
+    
+    REPOSITORIES {
+        int id PK
+        int owner_id FK
+        varchar name
+        boolean is_private
+        timestamp created_at
+    }
+    
+    PULL_REQUESTS {
+        int id PK
+        int repo_id FK
+        int author_id FK
+        varchar title
+        varchar status
+        varchar source_branch
+        varchar target_branch
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    CI_RUNS {
+        int id PK
+        int repo_id FK
+        varchar commit_hash
+        varchar status
+        text log
+        timestamp created_at
+        timestamp finished_at
+    }
+
+    USERS ||--o{ REPOSITORIES : "owns"
+    USERS ||--o{ PULL_REQUESTS : "authors"
+    REPOSITORIES ||--o{ PULL_REQUESTS : "has"
+    REPOSITORIES ||--o{ CI_RUNS : "triggers"
+</div>
+
+<h3>Entity Relationships</h3>
+<table>
+  <tr><th>Relationship</th><th>Cardinality</th><th>Cascade</th></tr>
+  <tr><td>User → Repository</td><td>1 : N</td><td><code>ON DELETE CASCADE</code></td></tr>
+  <tr><td>User → Pull Request</td><td>1 : N</td><td><code>ON DELETE CASCADE</code></td></tr>
+  <tr><td>Repository → Pull Request</td><td>1 : N</td><td><code>ON DELETE CASCADE</code></td></tr>
+  <tr><td>Repository → CI Run</td><td>1 : N</td><td><code>ON DELETE CASCADE</code></td></tr>
+</table>
+
+<h3>Status Enums</h3>
+<table>
+  <tr><th>Entity</th><th>Field</th><th>Values</th></tr>
+  <tr><td><code>pull_requests</code></td><td><code>status</code></td><td><code>open</code> → <code>merged</code></td></tr>
+  <tr><td><code>ci_runs</code></td><td><code>status</code></td><td><code>pending</code> → <code>running</code> → <code>success</code> | <code>failed</code></td></tr>
+</table>
+
+<hr/>
+
+<!-- ==================== SECTION 5 ==================== -->
+<h1 id="s5" class="page-break"><span class="section-num">5</span> API Design (Mapped to Functional Requirements)</h1>
+
+<h2>5.1 Authentication APIs → FR-1, FR-2</h2>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Auth</th><th>Maps to</th><th>Description</th></tr>
+  <tr><td><code>POST</code></td><td><code>/api/auth/register</code></td><td>None</td><td>FR-1</td><td>Register with <code>{ username, email, password }</code>. Argon2id hash.</td></tr>
+  <tr><td><code>POST</code></td><td><code>/api/auth/login</code></td><td>None</td><td>FR-1</td><td>Login. Returns 24h JWT <code>{ token }</code>.</td></tr>
+  <tr><td><code>POST</code></td><td><code>/api/auth/google</code></td><td>None</td><td>FR-1</td><td>Google OAuth. <code>{ credential }</code> ID token. Auto-creates user.</td></tr>
+  <tr><td><code>POST</code></td><td><code>/api/auth/pat</code></td><td>JWT</td><td>FR-2</td><td>Generate PAT <code>gp_pat_&lt;48hex&gt;</code>. SHA-256 stored. Plaintext returned once.</td></tr>
+</table>
+
+<h2>5.2 Repository APIs → FR-3, FR-5</h2>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Auth</th><th>Maps to</th><th>Description</th></tr>
+  <tr><td><code>POST</code></td><td><code>/api/repos</code></td><td>JWT</td><td>FR-3</td><td>Create repo. Runs <code>git init --bare</code>. Returns clone URL.</td></tr>
+  <tr><td><code>GET</code></td><td><code>/api/repos</code></td><td>JWT</td><td>FR-3</td><td>List user's repos + public repos.</td></tr>
+  <tr><td><code>GET</code></td><td><code>/api/repos/:owner/:repo/files</code></td><td>JWT</td><td>FR-5</td><td>Browse file tree via <code>git ls-tree</code>.</td></tr>
+  <tr><td><code>GET</code></td><td><code>/api/repos/:owner/:repo/file-content</code></td><td>JWT</td><td>FR-5</td><td>View file via <code>git show</code>. Query: <code>?path=...</code></td></tr>
+</table>
+
+<h2>5.3 Git Protocol APIs → FR-4 (Go Gateway)</h2>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Auth</th><th>Description</th></tr>
+  <tr><td><code>GET</code></td><td><code>/:owner/:repo.git/info/refs?service=git-upload-pack</code></td><td>Basic</td><td>Fetch/clone ref discovery</td></tr>
+  <tr><td><code>GET</code></td><td><code>/:owner/:repo.git/info/refs?service=git-receive-pack</code></td><td>Basic</td><td>Push ref discovery</td></tr>
+  <tr><td><code>POST</code></td><td><code>/:owner/:repo.git/git-upload-pack</code></td><td>Basic</td><td>Clone/fetch packfile stream</td></tr>
+  <tr><td><code>POST</code></td><td><code>/:owner/:repo.git/git-receive-pack</code></td><td>Basic</td><td>Push packfile stream + trigger CI</td></tr>
+</table>
+
+<h2>5.4 Internal Verification API</h2>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Auth</th><th>Description</th></tr>
+  <tr><td><code>POST</code></td><td><code>/api/repos/verify-git-auth</code></td><td>Internal</td><td>Gateway verifies PAT credentials. Returns <code>{ authenticated, authorized }</code>.</td></tr>
+</table>
+
+<h2>5.5 Pull Request APIs → FR-6, FR-7, FR-8</h2>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Auth</th><th>Maps to</th><th>Description</th></tr>
+  <tr><td><code>POST</code></td><td><code>/api/pulls</code></td><td>JWT</td><td>FR-6</td><td>Create PR <code>{ repoId, title, sourceBranch, targetBranch }</code>.</td></tr>
+  <tr><td><code>GET</code></td><td><code>/api/pulls?repoId=X</code></td><td>JWT</td><td>FR-6</td><td>List PRs for a repository with author names.</td></tr>
+  <tr><td><code>GET</code></td><td><code>/api/pulls/:id/diff</code></td><td>JWT</td><td>FR-7</td><td>Compute diff via <code>git diff "target...source"</code>.</td></tr>
+  <tr><td><code>POST</code></td><td><code>/api/pulls/:id/merge</code></td><td>JWT</td><td>FR-8</td><td>Merge PR: temp clone → merge → push back. Owner-only.</td></tr>
+</table>
+
+<h2>5.6 CI/CD APIs → FR-9, FR-10, FR-11</h2>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Auth</th><th>Maps to</th><th>Description</th></tr>
+  <tr><td><code>POST</code></td><td><code>/api/ci/internal/on-push</code></td><td>Internal</td><td>FR-9</td><td>Auto-trigger CI on push. Reads <code>.gitpub-ci.yml</code>.</td></tr>
+  <tr><td><code>POST</code></td><td><code>/api/ci/trigger</code></td><td>JWT</td><td>FR-10</td><td>Manual CI trigger <code>{ repoId, branchOrCommit }</code>.</td></tr>
+  <tr><td><code>GET</code></td><td><code>/api/ci?repoId=X</code></td><td>JWT</td><td>FR-11</td><td>List all CI runs for a repo.</td></tr>
+  <tr><td><code>GET</code></td><td><code>/api/ci/:id</code></td><td>JWT</td><td>FR-11</td><td>Get single CI run with full log.</td></tr>
+</table>
+
+<h2>5.7 Health Check</h2>
+<table>
+  <tr><th>Method</th><th>Endpoint</th><th>Auth</th><th>Description</th></tr>
+  <tr><td><code>GET</code></td><td><code>/api/health</code></td><td>None</td><td>Pings PostgreSQL. Returns <code>{ status: 'healthy' }</code>.</td></tr>
+</table>
+
+<hr/>
+
+<!-- ==================== SECTION 6 ==================== -->
+<h1 id="s6" class="page-break"><span class="section-num">6</span> High-Level Design (HLD)</h1>
+
+<h2>6.1 System Architecture</h2>
+
+<div class="mermaid">
+flowchart TD
+    subgraph Clients
+        GIT["🖥️ Git CLI<br/>(clone / push / fetch)"]
+        BROWSER["🌐 Web Browser"]
+    end
+
+    subgraph Frontend["Frontend Layer"]
+        NEXTJS["Next.js 16 Web App :3000<br/>React 19 + Tailwind<br/>Monaco Editor + Diff Viewer"]
+    end
+
+    subgraph Gateway["Protocol Gateway Layer"]
+        GOGTW["Go HTTP Gateway :8081<br/>Git Smart HTTP Protocol<br/>io.Pipe Zero-RAM Streaming<br/>RBAC via API Callback"]
+    end
+
+    subgraph API["Application Layer"]
+        EXPRESS["Express REST API :8080<br/>JWT + Google OAuth + PAT<br/>Repo CRUD + PR Engine<br/>CI Orchestration"]
+        BULLMQ["BullMQ CI Worker<br/>Job Consumer"]
+    end
+
+    subgraph DataLayer["Data Layer"]
+        PG["🐘 PostgreSQL :5432<br/>Users, Repos, PRs, CI Runs"]
+        REDIS["⚡ Redis :6379<br/>BullMQ Job Queue"]
+        DISK["💾 Disk Storage<br/>data/repos/<br/>Bare Git Repositories"]
+    end
+
+    subgraph Sandbox["CI Sandbox Layer"]
+        DOCKER["🐳 Docker Container<br/>gitpub-ci-runner:latest<br/>--cap-drop=ALL<br/>--network none<br/>--memory=1024m"]
+    end
+
+    GIT -->|"HTTP Basic Auth<br/>(username:PAT)"| GOGTW
+    BROWSER --> NEXTJS
+    NEXTJS -->|"REST API<br/>(JWT Bearer)"| EXPRESS
+
+    GOGTW -->|"POST /verify-git-auth"| EXPRESS
+    GOGTW -->|"git upload-pack /<br/>git receive-pack"| DISK
+    GOGTW -->|"POST /on-push<br/>(async)"| EXPRESS
+
+    EXPRESS --> PG
+    EXPRESS -->|"Enqueue job"| REDIS
+    EXPRESS --> DISK
+
+    REDIS -->|"Dequeue job"| BULLMQ
+    BULLMQ -->|"Clone to scratch/"| DISK
+    BULLMQ -->|"Spawn container"| DOCKER
+    BULLMQ -->|"Stream logs"| PG
+
+    DOCKER -->|"stdout/stderr"| BULLMQ
+</div>
+
+<h2>6.2 Git Push — End-to-End Sequence</h2>
+
+<div class="mermaid">
+sequenceDiagram
+    participant Dev as 🖥️ Developer
+    participant GW as Go Gateway
+    participant API as Express API
+    participant DB as PostgreSQL
+    participant Disk as Bare Repo
+    participant Redis as Redis Queue
+    participant Worker as BullMQ Worker
+    participant Docker as CI Container
+
+    Dev->>GW: GET /owner/repo.git/info/refs<br/>?service=git-receive-pack
+    GW->>API: POST /verify-git-auth<br/>{ username, PAT, action: push }
+    API->>DB: Validate PAT (SHA-256 compare)
+    DB-->>API: User + Repo record
+    API-->>GW: { authenticated, authorized }
+    GW->>Disk: git receive-pack --advertise-refs
+    Disk-->>GW: ref advertisement
+    GW-->>Dev: 200 OK + pkt-line refs
+
+    Dev->>GW: POST /git-receive-pack<br/>[Packfile in body]
+    Note over GW,Disk: io.Pipe streaming<br/>O(1) memory
+    GW->>Disk: stdin ← io.Copy(r.Body)
+    Disk-->>GW: stdout → io.Copy(w)
+    GW-->>Dev: Push successful
+
+    GW-)API: POST /on-push { owner, repo }<br/>(async goroutine)
+    API->>Disk: git show HEAD:.gitpub-ci.yml
+    API->>DB: INSERT ci_runs (pending)
+    API->>Redis: Enqueue { runId, commitHash }
+
+    Redis->>Worker: Job dequeued
+    Worker->>DB: status = running
+    Worker->>Disk: Clone → scratch/
+    Worker->>Docker: docker run (sandboxed)
+    
+    loop Log Streaming
+        Docker-->>Worker: stdout chunk
+        Worker->>DB: Append to ci_runs.log
+    end
+
+    Docker-->>Worker: Exit code 0
+    Worker->>DB: status = success
+</div>
+
+<h2>6.3 Pull Request Merge Flow</h2>
+
+<div class="mermaid">
+sequenceDiagram
+    participant User as 👤 User
+    participant FE as Next.js
+    participant API as Express API
+    participant DB as PostgreSQL
+    participant Disk as Bare Repo
+    participant Scratch as Temp Workspace
+
+    User->>FE: Click "Merge PR"
+    FE->>API: POST /pulls/:id/merge
+    API->>DB: Fetch PR + verify owner
+    
+    Note over API: RBAC Check:<br/>user.id === owner_id
+
+    API->>Scratch: git clone bare-repo
+    API->>Scratch: git checkout target
+    API->>Scratch: git merge origin/source
+
+    alt Clean Merge
+        API->>Disk: git push origin target
+        API->>DB: status = merged
+        API-->>FE: 200 Success
+    else Conflict
+        API-->>FE: 409 Conflict
+    end
+
+    API->>Scratch: rm -rf temp workspace
+</div>
+
+<hr/>
+
+<!-- ==================== SECTION 7 ==================== -->
+<h1 id="s7" class="page-break"><span class="section-num">7</span> Low-Level Design (LLD) Deep Dive</h1>
+
+<h2>7.1 Authentication System</h2>
+
+<div class="mermaid">
+flowchart TD
+    subgraph Registration["📝 Registration"]
+        R1["POST /api/auth/register<br/>{ username, email, password }"]
+        R2["Validate input"]
+        R3["argon2.hash(password)"]
+        R4["INSERT INTO users"]
+        R5["✅ 201 Created"]
+        R6["❌ 409 Duplicate"]
+        
+        R1 --> R2 --> R3 --> R4
+        R4 -->|OK| R5
+        R4 -->|Unique violation| R6
+    end
+
+    subgraph Login["🔑 Login"]
+        L1["POST /api/auth/login<br/>{ email, password }"]
+        L2["SELECT * FROM users<br/>WHERE email = ?"]
+        L3["argon2.verify(hash, pwd)"]
+        L4["jwt.sign({ id, username },<br/>secret, { expiresIn: 24h })"]
+        L5["✅ Return { token }"]
+        L6["❌ 401 Invalid"]
+        
+        L1 --> L2 --> L3
+        L3 -->|Match| L4 --> L5
+        L3 -->|No match| L6
+    end
+
+    subgraph PAT["🎫 PAT Generation"]
+        P1["POST /api/auth/pat [JWT]"]
+        P2["gp_pat_ + randomBytes(24).hex()"]
+        P3["SHA-256(rawPat)"]
+        P4["UPDATE users SET pat_hash"]
+        P5["✅ Return plaintext PAT<br/>(shown once)"]
+        
+        P1 --> P2 --> P3 --> P4 --> P5
+    end
+
+    subgraph Google["🔵 Google OAuth"]
+        G1["POST /api/auth/google<br/>{ credential }"]
+        G2["verifyIdToken(idToken)"]
+        G3{"User exists?"}
+        G4["Login existing"]
+        G5["Auto-create user"]
+        G6["✅ Return JWT"]
+        
+        G1 --> G2 --> G3
+        G3 -->|Yes| G4 --> G6
+        G3 -->|No| G5 --> G6
+    end
+</div>
+
+<h2>7.2 Git Protocol Gateway</h2>
+
+<div class="mermaid">
+flowchart TD
+    subgraph Routing["🔀 URL Parsing"]
+        U1["HTTP Request"]
+        U2["Parse /:owner/:repo.git/..."]
+        U3["Normalize .git suffix"]
+        U4{"Path?"}
+        
+        U1 --> U2 --> U3 --> U4
+        U4 -->|/info/refs| REF["Ref Discovery"]
+        U4 -->|/git-upload-pack| UP["Upload Pack"]
+        U4 -->|/git-receive-pack| RP["Receive Pack"]
+    end
+
+    subgraph Auth["🔒 Auth Verification"]
+        A1["Extract BasicAuth"]
+        A2["POST /verify-git-auth"]
+        A3{"Result?"}
+        A4["✅ Proceed"]
+        A5["❌ 401 + WWW-Authenticate"]
+        
+        A1 --> A2 --> A3
+        A3 -->|authorized| A4
+        A3 -->|unauthorized| A5
+    end
+
+    subgraph Stream["⚡ io.Pipe Streaming"]
+        S1["exec.Command('git', args)"]
+        S2["cmd.StdinPipe()"]
+        S3["cmd.StdoutPipe()"]
+        S4["cmd.Start()"]
+        S5["goroutine:<br/>io.Copy(stdin, r.Body)"]
+        S6["io.Copy(w, stdout)"]
+        S7["cmd.Wait()"]
+        
+        S1 --> S2 --> S3 --> S4
+        S4 --> S5
+        S4 --> S6
+        S5 & S6 --> S7
+    end
+
+    subgraph Hook["🪝 CI Hook"]
+        H1{"Wait() == nil?"}
+        H2["go triggerOnPushCI()"]
+        H3["POST /on-push"]
+        
+        H1 -->|Yes| H2 --> H3
+        H1 -->|Error| H4["Skip"]
+    end
+
+    REF & UP & RP --> Auth
+    Auth -->|OK| Stream
+    Stream --> Hook
+</div>
+
+<h2>7.3 CI Pipeline Execution</h2>
+
+<div class="mermaid">
+flowchart TD
+    subgraph Trigger["⚡ Trigger"]
+        T1["Push hook OR manual"]
+        T2["git rev-parse → SHA"]
+        T3["INSERT ci_runs<br/>status = pending"]
+        T4["Queue.add(job)"]
+        T1 --> T2 --> T3 --> T4
+    end
+
+    subgraph Worker["⚙️ Worker"]
+        W1["Dequeue from Redis"]
+        W2["status = running"]
+        W3["git show .gitpub-ci.yml"]
+        W4["Parse YAML steps"]
+        W5["Chain with &&"]
+        W1 --> W2 --> W3 --> W4 --> W5
+    end
+
+    subgraph Workspace["📁 Workspace"]
+        WS1["mkdir scratch/ci-runs/"]
+        WS2["git clone bare-repo"]
+        WS3["git checkout commit"]
+        WS1 --> WS2 --> WS3
+    end
+
+    subgraph Runner["🐳 Runner Selection"]
+        D1{"Docker<br/>available?"}
+        D2{"Image<br/>exists?"}
+        D3["docker build"]
+        D4["Docker sandbox"]
+        D5{"Fallback<br/>allowed?"}
+        D6["Local subprocess"]
+        D7["❌ Fail"]
+        
+        D1 -->|Yes| D2
+        D2 -->|Yes| D4
+        D2 -->|No| D3 --> D4
+        D1 -->|No| D5
+        D5 -->|Yes| D6
+        D5 -->|No| D7
+    end
+
+    subgraph Exec["🏃 Execution"]
+        E1["docker run --rm<br/>--cap-drop=ALL<br/>--network none<br/>--memory=1024m"]
+        E2["10min watchdog"]
+        E3["Stream logs → DB"]
+        E4{"Exit?"}
+        E5["✅ success"]
+        E6["❌ failed"]
+        E7["💀 SIGKILL (timeout)"]
+        
+        E1 --> E2 & E3
+        E3 --> E4
+        E4 -->|0| E5
+        E4 -->|non-zero| E6
+        E2 -->|timeout| E7
+    end
+
+    subgraph Clean["🧹 Cleanup"]
+        C1["rm -rf scratch/"]
+        C2["finished_at = NOW()"]
+        C1 --> C2
+    end
+
+    Trigger --> Worker --> Workspace --> Runner
+    Runner -->|Docker/Fallback| Exec --> Clean
+</div>
+
+<h2>7.4 PR Diff &amp; Merge Engine</h2>
+
+<div class="mermaid">
+flowchart TD
+    subgraph Diff["📊 Diff Engine"]
+        DE1["GET /pulls/:id/diff"]
+        DE2["Fetch PR from DB"]
+        DE3["Resolve bare repo path"]
+        DE4["git diff target...source<br/>(triple-dot = merge-base diff)"]
+        DE5["Return unified diff"]
+        
+        DE1 --> DE2 --> DE3 --> DE4 --> DE5
+    end
+
+    subgraph Merge["🔀 Merge Engine"]
+        ME1["POST /pulls/:id/merge"]
+        ME2["Fetch PR"]
+        ME3{"status<br/>== open?"}
+        ME4{"user ==<br/>owner?"}
+        ME5["git clone → temp"]
+        ME6["git checkout target"]
+        ME7["git merge origin/source"]
+        ME8{"Conflict?"}
+        ME9["git push origin target"]
+        ME10["status = merged"]
+        ME11["✅ 200 OK"]
+        ME12["❌ 409 Conflict"]
+        ME13["❌ 400 Already merged"]
+        ME14["❌ 403 Forbidden"]
+        ME15["rm -rf temp"]
+        
+        ME1 --> ME2 --> ME3
+        ME3 -->|No| ME13
+        ME3 -->|Yes| ME4
+        ME4 -->|No| ME14
+        ME4 -->|Yes| ME5 --> ME6 --> ME7 --> ME8
+        ME8 -->|No| ME9 --> ME10 --> ME11
+        ME8 -->|Yes| ME12
+        ME11 & ME12 --> ME15
+    end
+</div>
+
+<div class="callout callout-note">
+  <div class="callout-title">💡 Why triple-dot diff?</div>
+  <code>git diff A...B</code> computes the diff from the merge-base of A and B to B. This shows only changes introduced in the source branch, ignoring commits already in the target — exactly what a PR review needs.
+</div>
+
+<div class="callout callout-note">
+  <div class="callout-title">💡 Why clone for merge?</div>
+  Bare repositories have no working tree or index, so <code>git merge</code> cannot run directly on them. The system creates an ephemeral scratch clone, performs the merge, then pushes the result back.
+</div>
+
+<hr/>
+
+<!-- ==================== SECTION 8 ==================== -->
+<h1 id="s8" class="page-break"><span class="section-num">8</span> Database Access Patterns &amp; Indexing</h1>
+
+<table>
+  <tr><th>Query Pattern</th><th>Table</th><th>Index</th><th>Frequency</th></tr>
+  <tr><td>Login by email</td><td><code>users</code></td><td><code>UNIQUE(email)</code> ✅</td><td>High</td></tr>
+  <tr><td>PAT validation by username</td><td><code>users</code></td><td><code>UNIQUE(username)</code> ✅</td><td>High (every git op)</td></tr>
+  <tr><td>List repos by owner</td><td><code>repositories</code></td><td><code>(owner_id, created_at DESC)</code></td><td>Medium</td></tr>
+  <tr><td>Find repo by owner + name</td><td><code>repositories</code></td><td><code>UNIQUE(owner_id, name)</code> ✅</td><td>High (every git op)</td></tr>
+  <tr><td>List PRs by repo</td><td><code>pull_requests</code></td><td><code>(repo_id, created_at DESC)</code></td><td>Medium</td></tr>
+  <tr><td>List CI runs by repo</td><td><code>ci_runs</code></td><td><code>(repo_id, created_at DESC)</code></td><td>High (polling)</td></tr>
+  <tr><td>Append CI log</td><td><code>ci_runs</code></td><td>PK lookup by <code>id</code> ✅</td><td>Very High (streaming)</td></tr>
+</table>
+
+<hr/>
+
+<!-- ==================== SECTION 9 ==================== -->
+<h1 id="s9" class="page-break"><span class="section-num">9</span> Scaling Deep Dive — 10x / 100x</h1>
+
+<div class="mermaid">
+flowchart LR
+    subgraph Current["📦 Current"]
+        A1["1 Go Gateway"]
+        A2["1 Express API"]
+        A3["1 Worker"]
+        A4["1 PostgreSQL"]
+        A5["1 Redis"]
+        A6["Local Disk"]
+    end
+
+    subgraph Scale10["🚀 10x Scale"]
+        B1["3 Go Gateways<br/>+ Load Balancer"]
+        B2["3 Express APIs<br/>+ Load Balancer"]
+        B3["5 BullMQ Workers"]
+        B4["PostgreSQL +<br/>2 Read Replicas"]
+        B5["Redis Cluster"]
+        B6["Shared NFS/EFS"]
+    end
+
+    subgraph Scale100["🌍 100x Scale"]
+        C1["Auto-scaled<br/>K8s Pods"]
+        C2["Auto-scaled<br/>K8s Pods"]
+        C3["Auto-scaled<br/>Worker Pool"]
+        C4["Partitioned DB +<br/>PgBouncer"]
+        C5["Redis Sentinel +<br/>Pub/Sub Logs"]
+        C6["S3 + Git LFS"]
+    end
+
+    Current --> Scale10 --> Scale100
+</div>
+
+<table>
+  <tr><th>Bottleneck</th><th>10x Solution</th><th>100x Solution</th></tr>
+  <tr><td><strong>Git I/O</strong></td><td>Shared NFS volume</td><td>Shard repos via consistent hashing</td></tr>
+  <tr><td><strong>CI queue</strong></td><td>More workers</td><td>K8s HPA auto-scaling worker pool</td></tr>
+  <tr><td><strong>DB writes (CI logs)</strong></td><td>Batch appends (1s intervals)</td><td>Redis Pub/Sub → SSE. Write to DB on completion only.</td></tr>
+  <tr><td><strong>API throughput</strong></td><td>Horizontal + LB</td><td>K8s auto-scaling + PgBouncer</td></tr>
+  <tr><td><strong>Log polling</strong></td><td>Acceptable at 5s</td><td>Replace with WebSocket/SSE push</td></tr>
+</table>
+
+<hr/>
+
+<!-- ==================== SECTION 10 ==================== -->
+<h1 id="s10" class="page-break"><span class="section-num">10</span> Production Deployment Architecture</h1>
+
+<div class="mermaid">
+flowchart TD
+    subgraph Internet
+        USER["👤 Users / Developers"]
+    end
+
+    subgraph Vercel["☁️ Vercel (Free Tier)"]
+        NEXT["Next.js 16 Dashboard<br/>Static + SSR"]
+    end
+
+    subgraph FlyAPI["✈️ Fly.io Machine 1"]
+        API["Express API + BullMQ Worker<br/>shared-cpu-1x, 512MB"]
+    end
+
+    subgraph FlyGW["✈️ Fly.io Machine 2"]
+        GW["Go Gateway<br/>shared-cpu-1x, 256MB"]
+        VOL["Fly Volume 1GB<br/>/data/repos"]
+    end
+
+    subgraph Managed["🔧 Managed Services"]
+        NEON["🐘 Neon PostgreSQL<br/>(Serverless)"]
+        UPSTASH["⚡ Upstash Redis<br/>(Serverless)"]
+    end
+
+    USER -->|HTTPS| NEXT
+    USER -->|"Git HTTPS"| GW
+    NEXT -->|REST API| API
+    GW -->|Auth verify| API
+    GW --> VOL
+    API --> NEON
+    API --> UPSTASH
+</div>
+
+<hr/>
+
+<!-- ==================== SECTION 11 ==================== -->
+<h1 id="s11" class="page-break"><span class="section-num">11</span> Interview Cheat Sheet</h1>
+
+<div class="interview-q">
+  <div class="q">"Walk me through the architecture"</div>
+  <div class="a">GitPub uses a <strong>microservice architecture</strong> with 3 core services: a <strong>Go protocol gateway</strong> for Git wire protocol streaming, a <strong>Node.js/Express API</strong> for business logic and CI orchestration, and a <strong>Next.js frontend</strong>. Services communicate via REST. CI jobs are dispatched through a <strong>Redis-backed message queue</strong> (BullMQ) and executed in <strong>hardened Docker sandbox containers</strong>.</div>
+</div>
+
+<div class="interview-q">
+  <div class="q">"How do you handle large file uploads?"</div>
+  <div class="a">The Go gateway uses <strong><code>io.Pipe</code> zero-RAM streaming</strong> — the HTTP request body is piped directly to <code>git receive-pack</code>'s stdin, and stdout pipes directly to the HTTP response. Memory is O(1) regardless of packfile size (even for 1GB+ pushes).</div>
+</div>
+
+<div class="interview-q">
+  <div class="q">"How do you ensure security for CI?"</div>
+  <div class="a">CI containers run with <strong><code>--cap-drop=ALL</code></strong> (no Linux capabilities), <strong><code>--network none</code></strong> (air-gapped), <strong><code>--no-new-privileges</code></strong>, <strong>1GB memory cap</strong>, <strong>1 CPU limit</strong>, and as <strong>non-root user (uid 1000)</strong>. A 10-minute watchdog timer kills hung processes. Docker socket is never mounted.</div>
+</div>
+
+<div class="interview-q">
+  <div class="q">"What's your CAP theorem trade-off?"</div>
+  <div class="a">GitPub is a <strong>CP system</strong>. Git refs must be linearizable — a push must be fully committed before any reader sees new refs. We use PostgreSQL (strong consistency) and prefer returning errors over serving stale data during network partitions.</div>
+</div>
+
+<div class="interview-q">
+  <div class="q">"How would you scale this?"</div>
+  <div class="a"><strong>Horizontally</strong>: Go gateways and Express APIs are stateless — scale behind a load balancer. BullMQ workers scale independently by adding more consumers. <strong>Storage</strong>: move to shared NFS/EFS, then shard by owner hash. <strong>Logs</strong>: replace polling with WebSocket/SSE and Redis Pub/Sub. <strong>Database</strong>: read replicas, PgBouncer, partition ci_runs table.</div>
+</div>
+
+<div class="interview-q">
+  <div class="q">"What would you improve?"</div>
+  <div class="a">
+    <ol>
+      <li><strong>WebSocket/SSE</strong> for real-time CI logs instead of polling</li>
+      <li><strong>Rate limiting</strong> on auth endpoints (prevent brute force)</li>
+      <li><strong>Repository forking</strong> and cross-user pull requests</li>
+      <li><strong>Branch protection rules</strong> (require CI pass before merge)</li>
+      <li><strong>Webhook integrations</strong> (Slack, Discord notifications)</li>
+      <li><strong>Git LFS</strong> support for large binary assets</li>
+    </ol>
+  </div>
+</div>
+
+<div class="interview-q">
+  <div class="q">"Why Go for the gateway and Node.js for the API?"</div>
+  <div class="a"><strong>Go</strong> excels at I/O-heavy, concurrent streaming workloads — goroutines give us one lightweight thread per Git connection with O(1) memory via <code>io.Pipe</code>. <strong>Node.js</strong> offers faster iteration for CRUD/business logic with a rich ecosystem (BullMQ, Argon2, JWT, Google Auth libraries). This polyglot approach plays to each language's strengths.</div>
+</div>
+
+<div class="interview-q">
+  <div class="q">"How does the diff engine work on bare repos?"</div>
+  <div class="a">Bare repos have no working tree, but Git can still compute diffs directly using <strong>triple-dot notation</strong>: <code>git diff target...source</code>. This computes the diff from the merge-base to the source branch tip, showing only new changes — exactly what PR reviews need. No temporary clone required for diffs.</div>
+</div>
+
+<!-- Footer -->
+<hr/>
+<div style="text-align: center; color: var(--muted); font-size: 12px; margin-top: 30px;">
+  <p><strong>GitPub System Design</strong> — Interview-Ready Document</p>
+  <p>Generated September 2026 &bull; Go &bull; Node.js &bull; Next.js &bull; PostgreSQL &bull; Redis &bull; Docker</p>
+</div>
+
+<script>
+  mermaid.initialize({ 
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      primaryColor: '#fef3c7',
+      primaryTextColor: '#1a1a2e',
+      primaryBorderColor: '#f59e0b',
+      lineColor: '#64748b',
+      secondaryColor: '#ecfdf5',
+      tertiaryColor: '#eff6ff',
+      fontSize: '13px'
+    },
+    flowchart: { 
+      useMaxWidth: true,
+      htmlLabels: true,
+      curve: 'basis'
+    },
+    sequence: {
+      useMaxWidth: true,
+      actorMargin: 40,
+      messageMargin: 30
+    }
+  });
+</script>
+</body>
+</html>

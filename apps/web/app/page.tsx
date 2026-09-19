@@ -6,7 +6,8 @@ import Editor from '@monaco-editor/react';
 import ReactDiffViewer from 'react-diff-viewer-continued';
 import Script from 'next/script';
 
-const API_BASE = 'http://localhost:8080/api';
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '') : 'http://localhost:8080') + '/api';
+const GATEWAY_BASE = (process.env.NEXT_PUBLIC_GATEWAY_URL ? process.env.NEXT_PUBLIC_GATEWAY_URL.replace(/\/$/, '') : 'http://localhost:8081');
 
 interface Repository {
   id: number;
@@ -595,7 +596,7 @@ export default function Home() {
                     {selectedRepo.is_private ? 'Private' : 'Public'}
                   </span>
                 </h3>
-                <p className="text-[10px] text-stone-500 font-mono">Clone URL: http://localhost:8081/{selectedRepo.owner_name}/{selectedRepo.name}.git</p>
+                <p className="text-[10px] text-stone-500 font-mono">Clone URL: {GATEWAY_BASE}/{selectedRepo.owner_name}/{selectedRepo.name}.git</p>
               </div>
               <div className="flex gap-2">
                 <button
@@ -849,7 +850,7 @@ export default function Home() {
 
               <div className="space-y-1">
                 <p className="text-stone-600 font-sans"># 2. Clone a repository (input username & PAT token when prompted)</p>
-                <p className="bg-[#0d0b0a] p-2 rounded-xl border border-stone-850 select-all">git clone http://localhost:8081/&lt;username&gt;/&lt;repo_name&gt;.git</p>
+                <p className="bg-[#0d0b0a] p-2 rounded-xl border border-stone-850 select-all">git clone {GATEWAY_BASE}/&lt;username&gt;/&lt;repo_name&gt;.git</p>
               </div>
             </div>
           </div>
