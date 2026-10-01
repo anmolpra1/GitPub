@@ -15,7 +15,10 @@ import {
   CIRun,
   CommitInfo,
   User,
-  getAuthHeaders
+  getAuthHeaders,
+  starRepo,
+  unstarRepo,
+  forkRepo
 } from '../../../lib/api';
 
 interface PageProps {
@@ -40,6 +43,10 @@ export default function RepositoryPage({ params }: PageProps) {
   const [isOwner, setIsOwner] = useState<boolean>(false);
   const [cloneUrl, setCloneUrl] = useState<string>('');
   const [copiedClone, setCopiedClone] = useState<boolean>(false);
+  const [starCount, setStarCount] = useState<number>(0);
+  const [isStarred, setIsStarred] = useState<boolean>(false);
+  const [forkCount, setForkCount] = useState<number>(0);
+  const [isForking, setIsForking] = useState<boolean>(false);
 
   // Branches & Files state
   const [branches, setBranches] = useState<string[]>([]);
@@ -133,8 +140,56 @@ export default function RepositoryPage({ params }: PageProps) {
       setRepo(res.data.repository);
       setIsOwner(res.data.isOwner);
       setCloneUrl(res.data.cloneUrl);
+      setStarCount(res.data.repository?.stars_count || 0);
+      setIsStarred(Boolean(res.data.repository?.is_starred));
+      setForkCount(res.data.repository?.forks_count || 0);
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error || 'Failed to fetch repository');
+    }
+  };
+
+  const handleToggleStar = async () => {
+    if (!token) return;
+    const prevStarred = isStarred;
+    const prevCount = starCount;
+    // Optimistic UI update
+    setIsStarred(!prevStarred);
+    setStarCount(prevStarred ? Math.max(0, prevCount - 1) : prevCount + 1);
+
+    try {
+      if (prevStarred) {
+        const data = await unstarRepo(owner, repoName, token);
+        setStarCount(data.stars_count);
+        setIsStarred(false);
+      } else {
+        const data = await starRepo(owner, repoName, token);
+        setStarCount(data.stars_count);
+        setIsStarred(true);
+      }
+    } catch (err: any) {
+      setIsStarred(prevStarred);
+      setStarCount(prevCount);
+      setErrorMsg(err.response?.data?.error || 'Failed to update star');
+    }
+  };
+
+  const handleFork = async () => {
+    if (!token) return;
+    if (isOwner) {
+      setErrorMsg('You cannot fork your own repository');
+      return;
+    }
+    setIsForking(true);
+    setErrorMsg(null);
+    try {
+      const data = await forkRepo(owner, repoName, token);
+      setSuccessMsg('Repository forked successfully! Redirecting...');
+      setTimeout(() => {
+        router.push(`/${currentUser?.username || data.repository.owner_name}/${data.repository.name}`);
+      }, 1000);
+    } catch (err: any) {
+      setIsForking(false);
+      setErrorMsg(err.response?.data?.error || 'Failed to fork repository');
     }
   };
 
@@ -437,6 +492,14 @@ export default function RepositoryPage({ params }: PageProps) {
                 {repo.is_private ? 'Private' : 'Public'}
               </span>
             </div>
+            {repo.forked_from && (
+              <div className="text-[11px] text-stone-500 flex items-center gap-1 font-mono">
+                <span>forked from</span>
+                <a href={`/${repo.forked_from.owner}/${repo.forked_from.name}`} className="text-[#ff7a45] hover:underline">
+                  {repo.forked_from.owner}/{repo.forked_from.name}
+                </a>
+              </div>
+            )}
             <div className="flex items-center gap-2 font-mono text-[11px] text-stone-500">
               <span>Clone URL:</span>
               <span className="text-stone-400 select-all">{cloneUrl}</span>
@@ -454,6 +517,43 @@ export default function RepositoryPage({ params }: PageProps) {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Star Button */}
+            <button
+              onClick={handleToggleStar}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[11px] font-medium transition cursor-pointer ${
+                isStarred
+                  ? 'bg-amber-500/10 border-amber-500/40 text-amber-300 hover:bg-amber-500/20'
+                  : 'bg-[#181615] border-stone-800 text-stone-400 hover:text-white hover:border-stone-700'
+              }`}
+              title={isStarred ? 'Unstar this repository' : 'Star this repository'}
+            >
+              <span className={isStarred ? 'text-amber-400' : 'text-stone-500'}>★</span>
+              <span>{isStarred ? 'Starred' : 'Star'}</span>
+              <span className="ml-1 text-[10px] font-mono px-1.5 py-0.2 rounded bg-black/40 text-stone-400 border border-stone-800">
+                {starCount}
+              </span>
+            </button>
+
+            {/* Fork Button */}
+            <button
+              onClick={handleFork}
+              disabled={isOwner || isForking}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[11px] font-medium transition ${
+                isOwner
+                  ? 'bg-[#181615] border-stone-850 text-stone-600 cursor-not-allowed opacity-50'
+                  : 'bg-[#181615] border-stone-800 text-stone-400 hover:text-white hover:border-stone-700 cursor-pointer'
+              }`}
+              title={isOwner ? 'You cannot fork your own repository' : 'Fork this repository to your account'}
+            >
+              <svg className="w-3 h-3 text-stone-500" viewBox="0 0 16 16" fill="currentColor">
+                <path fillRule="evenodd" d="M5 3.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm0 2.122a2.25 2.25 0 10-1.5 0v.878A2.25 2.25 0 005.75 8.5h1.5v2.128a2.251 2.251 0 101.5 0V8.5h1.5a2.25 2.25 0 002.25-2.25v-.878a2.25 2.25 0 10-1.5 0v.878a.75.75 0 01-.75.75h-4.5A.75.75 0 015 6.25v-.878zm3.75 7.378a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm3-8.75a.75.75 0 100-1.5.75.75 0 000 1.5z"></path>
+              </svg>
+              <span>{isForking ? 'Forking...' : 'Fork'}</span>
+              <span className="ml-1 text-[10px] font-mono px-1.5 py-0.2 rounded bg-black/40 text-stone-400 border border-stone-800">
+                {forkCount}
+              </span>
+            </button>
+
             <button
               onClick={() => setShowNewPrModal(true)}
               className="border border-[#ff5d22]/40 hover:bg-[#ff5d22]/10 text-[#ff5d22] text-[11px] uppercase font-bold tracking-wider py-1.5 px-4 rounded-xl cursor-pointer transition"

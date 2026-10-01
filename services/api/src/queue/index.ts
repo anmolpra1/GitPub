@@ -12,10 +12,52 @@ import pool from '../db';
 export const ciLogEvents = new EventEmitter();
 ciLogEvents.setMaxListeners(200);
 
+const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+
 const execAsync = promisify(exec);
-const redisConnection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
+const redisConnection = new IORedis(REDIS_URL, {
   maxRetriesPerRequest: null,
 });
+
+export const redisPublisher = new IORedis(REDIS_URL, {
+  maxRetriesPerRequest: null,
+  lazyConnect: true,
+});
+
+export const redisSubscriber = new IORedis(REDIS_URL, {
+  maxRetriesPerRequest: null,
+  lazyConnect: true,
+});
+
+redisPublisher.connect().catch((err) => {
+  console.log('[Redis Pub/Sub] Publisher running in local fallback mode:', err.message);
+});
+
+redisSubscriber.connect().then(() => {
+  redisSubscriber.psubscribe('ci:logs:*', () => {});
+  redisSubscriber.on('pmessage', (_pattern, channel, message) => {
+    try {
+      const runId = channel.replace('ci:logs:', '');
+      const data = JSON.parse(message);
+      ciLogEvents.emit(`remote-log:${runId}`, data);
+      if (data.finished) {
+        ciLogEvents.emit(`remote-finish:${runId}`, data);
+      }
+    } catch {}
+  });
+}).catch((err) => {
+  console.log('[Redis Pub/Sub] Subscriber running in local fallback mode:', err.message);
+});
+
+export function broadcastCILog(runId: number, data: { chunk?: string; status?: string; finished?: boolean }) {
+  ciLogEvents.emit(`log:${runId}`, data);
+  if (data.finished) {
+    ciLogEvents.emit(`finish:${runId}`, data);
+  }
+  if (redisPublisher.status === 'ready') {
+    redisPublisher.publish(`ci:logs:${runId}`, JSON.stringify(data)).catch(() => {});
+  }
+}
 
 export const ciQueue = new Queue('ci-runs', { connection: redisConnection });
 
@@ -96,7 +138,7 @@ export class BuildLogBuffer {
            WHERE id = $2`,
           [batch, this.runId]
         );
-        ciLogEvents.emit(`log:${this.runId}`, { chunk: batch, status: 'running' });
+        broadcastCILog(this.runId, { chunk: batch, status: 'running' });
       } catch (err) {
         console.error(`[BuildLogBuffer] Database write error for CI run #${this.runId}:`, err);
       } finally {
@@ -148,7 +190,7 @@ export async function updateRun(runId: number, status: string, logChunk?: string
          WHERE id = $4`,
         [status, logChunk, finished ? new Date() : null, runId]
       );
-      ciLogEvents.emit(`log:${runId}`, { chunk: logChunk, status, finished });
+      broadcastCILog(runId, { chunk: logChunk, status, finished });
     } else {
       await pool.query(
         `UPDATE ci_runs 
@@ -157,10 +199,7 @@ export async function updateRun(runId: number, status: string, logChunk?: string
          WHERE id = $3`,
         [status, finished ? new Date() : null, runId]
       );
-      ciLogEvents.emit(`log:${runId}`, { status, finished });
-    }
-    if (finished) {
-      ciLogEvents.emit(`finish:${runId}`, { status, finished: true });
+      broadcastCILog(runId, { status, finished });
     }
   } catch (err) {
     console.error(`Error updating CI run ${runId} in database:`, err);

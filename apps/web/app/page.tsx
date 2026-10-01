@@ -323,16 +323,33 @@ export default function Home() {
                     className="p-4 rounded-xl border border-stone-850 bg-[#0d0b0a]/50 hover:border-stone-750 hover:bg-[#0d0b0a]/80 transition group block space-y-2"
                   >
                     <div className="flex justify-between items-start">
-                      <h3 className="text-sm font-semibold text-white group-hover:text-[#ff7a45] transition truncate">
-                        {r.owner_name} / {r.name}
-                      </h3>
-                      <span className="text-[9px] uppercase tracking-widest px-2 py-0.5 rounded-full border border-stone-800 bg-[#0d0b0a] text-stone-400">
+                      <div className="space-y-0.5 truncate pr-2">
+                        <h3 className="text-sm font-semibold text-white group-hover:text-[#ff7a45] transition truncate">
+                          {r.owner_name} / {r.name}
+                        </h3>
+                        {r.forked_from && (
+                          <p className="text-[10px] text-stone-500 font-mono truncate">
+                            forked from {r.forked_from.owner}/{r.forked_from.name}
+                          </p>
+                        )}
+                      </div>
+                      <span className="text-[9px] uppercase tracking-widest px-2 py-0.5 rounded-full border border-stone-800 bg-[#0d0b0a] text-stone-400 shrink-0">
                         {r.is_private ? 'Private' : 'Public'}
                       </span>
                     </div>
-                    <p className="text-[10px] text-stone-500 font-mono">
-                      Created: {new Date(r.created_at).toLocaleDateString()}
-                    </p>
+                    <div className="flex items-center justify-between text-[10px] text-stone-500 font-mono pt-1">
+                      <span>{new Date(r.created_at).toLocaleDateString()}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="flex items-center gap-1">
+                          <span className={r.is_starred ? 'text-amber-400' : 'text-stone-600'}>★</span>
+                          <span>{r.stars_count || 0}</span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="text-stone-600">⑂</span>
+                          <span>{r.forks_count || 0}</span>
+                        </span>
+                      </div>
+                    </div>
                   </Link>
                 ))}
               </div>

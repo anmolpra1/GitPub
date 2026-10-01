@@ -10,6 +10,15 @@ export interface Repository {
   owner_id: number;
   owner_name: string;
   created_at: string;
+  forked_from_id?: number | null;
+  forked_from?: {
+    id: number;
+    name: string;
+    owner: string;
+  } | null;
+  stars_count?: number;
+  forks_count?: number;
+  is_starred?: boolean;
 }
 
 export interface CommitInfo {
@@ -65,4 +74,24 @@ export function getAuthHeaders(token: string | null) {
       Authorization: `Bearer ${token}`
     }
   };
+}
+
+export async function starRepo(owner: string, repo: string, token: string) {
+  const res = await axios.post(`${API_BASE}/repos/${owner}/${repo}/star`, {}, getAuthHeaders(token));
+  return res.data;
+}
+
+export async function unstarRepo(owner: string, repo: string, token: string) {
+  const res = await axios.delete(`${API_BASE}/repos/${owner}/${repo}/star`, getAuthHeaders(token));
+  return res.data;
+}
+
+export async function forkRepo(owner: string, repo: string, token: string) {
+  const res = await axios.post(`${API_BASE}/repos/${owner}/${repo}/fork`, {}, getAuthHeaders(token));
+  return res.data;
+}
+
+export async function getRepoForks(owner: string, repo: string, token: string) {
+  const res = await axios.get(`${API_BASE}/repos/${owner}/${repo}/forks`, getAuthHeaders(token));
+  return res.data;
 }

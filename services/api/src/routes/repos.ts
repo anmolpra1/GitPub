@@ -89,15 +89,36 @@ router.get('/', authenticateJWT, async (req: AuthenticatedRequest, res: Response
 
   try {
     const result = await pool.query(
-      `SELECT r.*, u.username as owner_name 
+      `SELECT r.*, u.username as owner_name,
+              p.name as forked_from_name, pu.username as forked_from_owner,
+              (SELECT COUNT(*)::int FROM repo_stars WHERE repo_id = r.id) as stars_count,
+              (SELECT COUNT(*)::int FROM repositories WHERE forked_from_id = r.id) as forks_count,
+              EXISTS(SELECT 1 FROM repo_stars WHERE repo_id = r.id AND user_id = $1) as is_starred
        FROM repositories r 
        JOIN users u ON r.owner_id = u.id 
+       LEFT JOIN repositories p ON r.forked_from_id = p.id
+       LEFT JOIN users pu ON p.owner_id = pu.id
        WHERE r.owner_id = $1 OR r.is_private = false
        ORDER BY r.created_at DESC`,
       [user.id]
     );
 
-    res.json({ repositories: result.rows });
+    const formatted = result.rows.map((row: any) => {
+      let forked_from = null;
+      if (row.forked_from_id && row.forked_from_name && row.forked_from_owner) {
+        forked_from = {
+          id: row.forked_from_id,
+          name: row.forked_from_name,
+          owner: row.forked_from_owner
+        };
+      }
+      return {
+        ...row,
+        forked_from
+      };
+    });
+
+    res.json({ repositories: formatted });
   } catch (error) {
     console.error('List repositories error:', error);
     res.status(500).json({ error: 'Failed to retrieve repositories' });
@@ -177,11 +198,17 @@ router.get('/:owner/:repo', authenticateJWT, async (req: AuthenticatedRequest, r
 
   try {
     const result = await pool.query(
-      `SELECT r.*, u.username as owner_name 
+      `SELECT r.*, u.username as owner_name,
+              p.name as forked_from_name, pu.username as forked_from_owner,
+              (SELECT COUNT(*)::int FROM repo_stars WHERE repo_id = r.id) as stars_count,
+              (SELECT COUNT(*)::int FROM repositories WHERE forked_from_id = r.id) as forks_count,
+              EXISTS(SELECT 1 FROM repo_stars WHERE repo_id = r.id AND user_id = $3) as is_starred
        FROM repositories r 
        JOIN users u ON r.owner_id = u.id 
+       LEFT JOIN repositories p ON r.forked_from_id = p.id
+       LEFT JOIN users pu ON p.owner_id = pu.id
        WHERE u.username = $1 AND r.name = $2`,
-      [owner, repoName]
+      [owner, repoName, user?.id || 0]
     );
 
     const repository = result.rows[0];
@@ -191,6 +218,16 @@ router.get('/:owner/:repo', authenticateJWT, async (req: AuthenticatedRequest, r
 
     if (repository.is_private && repository.owner_id !== user?.id) {
       return res.status(403).json({ error: 'Access denied: Repository is private' });
+    }
+
+    if (repository.forked_from_id && repository.forked_from_name && repository.forked_from_owner) {
+      repository.forked_from = {
+        id: repository.forked_from_id,
+        name: repository.forked_from_name,
+        owner: repository.forked_from_owner,
+      };
+    } else {
+      repository.forked_from = null;
     }
 
     const gatewayUrl = (process.env.GATEWAY_URL || 'http://localhost:8081').replace(/\/$/, '');
@@ -410,6 +447,255 @@ router.delete('/:owner/:repo', authenticateJWT, async (req: AuthenticatedRequest
   } catch (error) {
     console.error('Delete repository error:', error);
     res.status(500).json({ error: 'Failed to delete repository' });
+  }
+});
+
+// POST /api/repos/:owner/:repo/fork - Fork repository into current user account
+router.post('/:owner/:repo/fork', authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const owner = req.params.owner as string;
+  const repoName = (req.params.repo as string).replace(/\.git$/, '');
+
+  try {
+    // 1. Fetch upstream repository
+    const upstreamRes = await pool.query(
+      `SELECT r.*, u.username as owner_name 
+       FROM repositories r 
+       JOIN users u ON r.owner_id = u.id 
+       WHERE u.username = $1 AND r.name = $2`,
+      [owner, repoName]
+    );
+    const upstream = upstreamRes.rows[0];
+    if (!upstream) {
+      return res.status(404).json({ error: 'Upstream repository not found' });
+    }
+
+    if (upstream.is_private && upstream.owner_id !== user.id) {
+      return res.status(403).json({ error: 'Cannot fork private repository without access' });
+    }
+
+    if (upstream.owner_id === user.id) {
+      return res.status(400).json({ error: 'You cannot fork your own repository' });
+    }
+
+    // 2. Check if user already has a repository with the same name
+    const existingRes = await pool.query(
+      'SELECT id FROM repositories WHERE owner_id = $1 AND name = $2',
+      [user.id, repoName]
+    );
+    if (existingRes.rows.length > 0) {
+      return res.status(409).json({ error: `You already have a repository named ${repoName}` });
+    }
+
+    // 3. Create database record
+    const insertRes = await pool.query(
+      `INSERT INTO repositories (owner_id, name, is_private, forked_from_id) 
+       VALUES ($1, $2, $3, $4) 
+       RETURNING *`,
+      [user.id, repoName, upstream.is_private, upstream.id]
+    );
+    const newRepo = insertRes.rows[0];
+
+    // 4. Git clone bare repository on disk
+    const sourceRepoPath = path.join(REPOS_ROOT, owner, `${repoName}.git`);
+    const destUserDir = path.join(REPOS_ROOT, user.username);
+    const destRepoPath = path.join(destUserDir, `${repoName}.git`);
+
+    await fs.promises.mkdir(destUserDir, { recursive: true });
+
+    try {
+      if (fs.existsSync(sourceRepoPath)) {
+        await execAsync(`git clone --bare "${sourceRepoPath}" "${destRepoPath}"`);
+      } else {
+        await execAsync(`git init --bare "${destRepoPath}"`);
+      }
+    } catch (cloneErr) {
+      console.error('Git clone bare failed during fork:', cloneErr);
+      await pool.query('DELETE FROM repositories WHERE id = $1', [newRepo.id]);
+      return res.status(500).json({ error: 'Failed to copy repository files during fork' });
+    }
+
+    const gatewayUrl = (process.env.GATEWAY_URL || 'http://localhost:8081').replace(/\/$/, '');
+    res.status(201).json({
+      message: 'Repository forked successfully',
+      repository: {
+        ...newRepo,
+        owner_name: user.username,
+        forked_from: {
+          id: upstream.id,
+          name: upstream.name,
+          owner: upstream.owner_name,
+        }
+      },
+      cloneUrl: `${gatewayUrl}/${user.username}/${repoName}.git`
+    });
+  } catch (error: any) {
+    console.error('Fork repository error:', error);
+    res.status(500).json({ error: 'Internal server error while forking repository' });
+  }
+});
+
+// GET /api/repos/:owner/:repo/forks - List all forks of a repository
+router.get('/:owner/:repo/forks', authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
+  const owner = req.params.owner as string;
+  const repoName = (req.params.repo as string).replace(/\.git$/, '');
+
+  try {
+    const upstreamRes = await pool.query(
+      `SELECT r.id 
+       FROM repositories r 
+       JOIN users u ON r.owner_id = u.id 
+       WHERE u.username = $1 AND r.name = $2`,
+      [owner, repoName]
+    );
+    const upstream = upstreamRes.rows[0];
+    if (!upstream) {
+      return res.status(404).json({ error: 'Repository not found' });
+    }
+
+    const forksRes = await pool.query(
+      `SELECT r.*, u.username as owner_name 
+       FROM repositories r 
+       JOIN users u ON r.owner_id = u.id 
+       WHERE r.forked_from_id = $1 
+       ORDER BY r.created_at DESC`,
+      [upstream.id]
+    );
+
+    res.json({ forks: forksRes.rows });
+  } catch (error) {
+    console.error('Get forks error:', error);
+    res.status(500).json({ error: 'Failed to retrieve forks' });
+  }
+});
+
+// POST /api/repos/:owner/:repo/star - Star a repository
+router.post('/:owner/:repo/star', authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const owner = req.params.owner as string;
+  const repoName = (req.params.repo as string).replace(/\.git$/, '');
+
+  try {
+    const repoRes = await pool.query(
+      `SELECT r.id, r.is_private, r.owner_id 
+       FROM repositories r 
+       JOIN users u ON r.owner_id = u.id 
+       WHERE u.username = $1 AND r.name = $2`,
+      [owner, repoName]
+    );
+    const repo = repoRes.rows[0];
+    if (!repo) {
+      return res.status(404).json({ error: 'Repository not found' });
+    }
+
+    if (repo.is_private && repo.owner_id !== user.id) {
+      return res.status(403).json({ error: 'Cannot star private repository' });
+    }
+
+    await pool.query(
+      `INSERT INTO repo_stars (user_id, repo_id) 
+       VALUES ($1, $2) 
+       ON CONFLICT (user_id, repo_id) DO NOTHING`,
+      [user.id, repo.id]
+    );
+
+    const countRes = await pool.query(
+      'SELECT COUNT(*)::int as count FROM repo_stars WHERE repo_id = $1',
+      [repo.id]
+    );
+
+    res.json({ starred: true, stars_count: countRes.rows[0].count });
+  } catch (error) {
+    console.error('Star repo error:', error);
+    res.status(500).json({ error: 'Failed to star repository' });
+  }
+});
+
+// DELETE /api/repos/:owner/:repo/star - Unstar a repository
+router.delete('/:owner/:repo/star', authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const owner = req.params.owner as string;
+  const repoName = (req.params.repo as string).replace(/\.git$/, '');
+
+  try {
+    const repoRes = await pool.query(
+      `SELECT r.id 
+       FROM repositories r 
+       JOIN users u ON r.owner_id = u.id 
+       WHERE u.username = $1 AND r.name = $2`,
+      [owner, repoName]
+    );
+    const repo = repoRes.rows[0];
+    if (!repo) {
+      return res.status(404).json({ error: 'Repository not found' });
+    }
+
+    await pool.query(
+      'DELETE FROM repo_stars WHERE user_id = $1 AND repo_id = $2',
+      [user.id, repo.id]
+    );
+
+    const countRes = await pool.query(
+      'SELECT COUNT(*)::int as count FROM repo_stars WHERE repo_id = $1',
+      [repo.id]
+    );
+
+    res.json({ starred: false, stars_count: countRes.rows[0].count });
+  } catch (error) {
+    console.error('Unstar repo error:', error);
+    res.status(500).json({ error: 'Failed to unstar repository' });
+  }
+});
+
+// GET /api/repos/:owner/:repo/star - Get star status and count
+router.get('/:owner/:repo/star', authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user;
+  const owner = req.params.owner as string;
+  const repoName = (req.params.repo as string).replace(/\.git$/, '');
+
+  try {
+    const repoRes = await pool.query(
+      `SELECT r.id 
+       FROM repositories r 
+       JOIN users u ON r.owner_id = u.id 
+       WHERE u.username = $1 AND r.name = $2`,
+      [owner, repoName]
+    );
+    const repo = repoRes.rows[0];
+    if (!repo) {
+      return res.status(404).json({ error: 'Repository not found' });
+    }
+
+    const countRes = await pool.query(
+      'SELECT COUNT(*)::int as count FROM repo_stars WHERE repo_id = $1',
+      [repo.id]
+    );
+
+    let isStarred = false;
+    if (user?.id) {
+      const starCheck = await pool.query(
+        'SELECT 1 FROM repo_stars WHERE user_id = $1 AND repo_id = $2',
+        [user.id, repo.id]
+      );
+      isStarred = starCheck.rows.length > 0;
+    }
+
+    res.json({ starred: isStarred, stars_count: countRes.rows[0].count });
+  } catch (error) {
+    console.error('Get star status error:', error);
+    res.status(500).json({ error: 'Failed to get star status' });
   }
 });
 

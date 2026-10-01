@@ -209,10 +209,14 @@ router.get('/:id/stream', async (req: Request, res: Response) => {
     const cleanup = () => {
       ciLogEvents.off(`log:${runId}`, onLog);
       ciLogEvents.off(`finish:${runId}`, onFinish);
+      ciLogEvents.off(`remote-log:${runId}`, onLog);
+      ciLogEvents.off(`remote-finish:${runId}`, onFinish);
     };
 
     ciLogEvents.on(`log:${runId}`, onLog);
     ciLogEvents.on(`finish:${runId}`, onFinish);
+    ciLogEvents.on(`remote-log:${runId}`, onLog);
+    ciLogEvents.on(`remote-finish:${runId}`, onFinish);
 
     req.on('close', cleanup);
   } catch (error) {

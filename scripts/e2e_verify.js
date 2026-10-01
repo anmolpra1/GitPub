@@ -299,6 +299,62 @@ async function runE2E() {
     }
     console.log('  -> Ref-aware endpoints (detail, branches, files, commits) verified.\n');
 
+    // 10. Verify Starring & Forking Operations
+    console.log('[10/10] Verifying Social Starring & Repository Forking Engine...');
+    console.log('  Starring repository...');
+    const starRes = await request(`${API_BASE}/repos/${testUsername}/${repoName}/star`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (starRes.status !== 200 || !starRes.body.starred || starRes.body.stars_count < 1) {
+      throw new Error(`Repository starring failed: ${JSON.stringify(starRes.body)}`);
+    }
+
+    console.log('  Unstarring repository...');
+    const unstarRes = await request(`${API_BASE}/repos/${testUsername}/${repoName}/star`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (unstarRes.status !== 200 || unstarRes.body.starred !== false) {
+      throw new Error(`Repository unstarring failed: ${JSON.stringify(unstarRes.body)}`);
+    }
+
+    console.log('  Registering secondary peer user for fork test...');
+    const user2Name = `user2_${timestamp}`;
+    const user2Email = `${user2Name}@example.com`;
+    const reg2 = await request(`${API_BASE}/auth/register`, { method: 'POST' }, {
+      username: user2Name,
+      email: user2Email,
+      password: testPassword
+    });
+    if (reg2.status !== 201) {
+      throw new Error(`User 2 registration failed: ${JSON.stringify(reg2.body)}`);
+    }
+
+    const log2 = await request(`${API_BASE}/auth/login`, { method: 'POST' }, {
+      email: user2Email,
+      password: testPassword
+    });
+    const token2 = log2.body.token;
+
+    console.log(`  Forking ${testUsername}/${repoName} into ${user2Name}'s account...`);
+    const forkRes = await request(`${API_BASE}/repos/${testUsername}/${repoName}/fork`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token2}` }
+    });
+    if (forkRes.status !== 201 || !forkRes.body.repository || !forkRes.body.repository.forked_from) {
+      throw new Error(`Repository forking failed: ${JSON.stringify(forkRes.body)}`);
+    }
+    console.log(`  -> Repository forked: ${forkRes.body.repository.owner_name}/${forkRes.body.repository.name} (Upstream: ${forkRes.body.repository.forked_from.owner}/${forkRes.body.repository.forked_from.name})`);
+
+    const forksList = await request(`${API_BASE}/repos/${testUsername}/${repoName}/forks`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (forksList.status !== 200 || !Array.isArray(forksList.body.forks) || forksList.body.forks.length === 0) {
+      throw new Error(`Upstream forks listing failed: ${JSON.stringify(forksList.body)}`);
+    }
+    console.log('  -> Upstream forks listing confirmed fork existence.\n');
+
     console.log('====================================================');
     console.log('  🎉 ALL POST-BUILD CHECKS & E2E TESTS PASSED!      ');
     console.log('====================================================');
