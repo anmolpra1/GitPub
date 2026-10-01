@@ -9,6 +9,8 @@ primary_region = "iad"
   PORT = "8080"
   NODE_ENV = "production"
   ALLOW_LOCAL_CI_FALLBACK = "true"
+  REPOS_ROOT = "/data/repos"
+  SCRATCH_ROOT = "/scratch"
 
 [http_service]
   internal_port = 8080
@@ -17,6 +19,10 @@ primary_region = "iad"
   auto_start_machines = true
   min_machines_running = 1
   processes = ["app"]
+
+[[mounts]]
+  source = "gitpub_repos"
+  destination = "/data/repos"
 
 [[vm]]
   size = "shared-cpu-1x"

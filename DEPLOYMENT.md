@@ -23,14 +23,23 @@ This guide provides step-by-step instructions for deploying the **GitPub Platfor
      +----------------------------------+        +-----------------------------------+
      |   Fly.io (services/api)          |        |   Fly.io (services/gateway)       |
      |   Express API & BullMQ Runner    | <----> |   Go Protocol Gateway             |
-     +-----------------+----------------+        +-----------------+-----------------+
-                       |                                           |
-         Relational DB | Redis Queue                               | Mounts
-                       v                                           v
-     +-----------------+----------------+        +-----------------+-----------------+
-     | Neon PostgreSQL | Upstash Redis  |        | Fly.io Persistent Volume          |
-     | (Serverless)    | (Serverless)   |        | (/data/repos)                     |
-     +-----------------+----------------+        +-----------------------------------+
+     +--------+-----------------+-------+        +-----------------+-----------------+
+              |                 |                                  |
+Relational DB |     Redis Queue |                                  | Mounts
+              v                 v                                  | (/data/repos)
+     +--------+--------+ +------+-------+                          |
+     | Neon PostgreSQL | | Upstash Redis|                          |
+     | (Serverless)    | | (Serverless) |                          |
+     +-----------------+ +--------------+                          |
+              |                                                    |
+              | Mounts (/data/repos)                               |
+              +----------------------------+   +-------------------+
+                                           |   |
+                                           v   v
+                               +-----------------------------------+
+                               | Fly.io Persistent Volume Storage  |
+                               | (gitpub_repos -> /data/repos)     |
+                               +-----------------------------------+
 ```
 
 ---
@@ -113,7 +122,12 @@ The Node.js API runs database migrations on startup, handles user auth, pull req
    cd services/api
    ```
 
-2. Configure production secrets on Fly.io:
+2. Create a persistent volume for Git repositories:
+   ```bash
+   fly volumes create gitpub_repos --size 1 --region iad
+   ```
+
+3. Configure production secrets on Fly.io:
    ```bash
    fly secrets set \
      DATABASE_URL="postgres://gitpub_owner:<password>@<endpoint>.neon.tech/gitpub?sslmode=require" \
@@ -124,13 +138,13 @@ The Node.js API runs database migrations on startup, handles user auth, pull req
      ALLOW_LOCAL_CI_FALLBACK="true"
    ```
 
-3. Launch and deploy the service:
+4. Launch and deploy the service:
    ```bash
    fly launch --no-deploy
    fly deploy
    ```
 
-4. Wire the API URL back to the Gateway:
+5. Wire the API URL back to the Gateway:
    ```bash
    cd ../gateway
    fly secrets set API_URL="https://gitpub-api.fly.dev"
@@ -195,3 +209,78 @@ git add . && git commit -m "Production test push"
 git push origin main
 ```
 Output will trigger the BullMQ CI runner and stream logs live to the Vercel dashboard!
+
+---
+
+## 7. Unified Storage Architecture & Multi-Service Volume Patterns
+
+GitPub decouples the Git wire protocol (Go Smart HTTP Gateway) from the business logic and CI orchestration (Node.js API & BullMQ). However, both services operate directly on the same bare Git repositories stored on disk under `REPOS_ROOT` (`/data/repos`).
+
+### 1. Unified Volume Pattern & Bare Repository Sharing
+- **Go Gateway (`services/gateway`)**:
+  - Serves Git Smart HTTP transfer protocols (`git-upload-pack`, `git-receive-pack`).
+  - Writes pushed commits and packfiles directly into the bare repository (`<REPOS_ROOT>/<owner>/<repo>.git`).
+  - Fires the internal push webhook to `POST /api/ci/internal/on-push` after receiving objects.
+- **Node.js REST API & CI Runner (`services/api`)**:
+  - Initializes new bare repositories on disk (`git init --bare`) via `POST /api/repos`.
+  - Reads repository trees and file contents (`git ls-tree`, `git show`).
+  - Calculates branch diffs for Pull Requests (`git diff base...head`).
+  - Executes merge operations by cloning the bare repository to a temporary workspace under `SCRATCH_ROOT/temp-merges`, performing `git merge`, and pushing back to the bare repository.
+  - CI Worker clones the bare repository to isolated scratch directories under `SCRATCH_ROOT/ci-runs` to execute build pipelines.
+
+Because both services interact with the exact same repositories, `REPOS_ROOT` must point to the identical filesystem location across both processes.
+
+### 2. Fly.io Storage Topology & Production Deployment Models
+On Fly.io, persistent NVMe volumes (`[[mounts]]`) are host-local block devices tied to an individual Fly Machine:
+
+- **Model A: Single-Host / Process Co-Location (Recommended for Free / Starter Tier)**:
+  - Both Gateway and API run within the same Fly Machine or multi-process container sharing `/data/repos`.
+  - Alternatively, each service mounts a volume named `gitpub_repos` in the same region (`iad`).
+- **Model B: Distributed Shared Network Volume (Recommended for Scaled Production Clusters)**:
+  - When scaling horizontally across multiple machines or regions, mount a distributed POSIX-compliant shared network filesystem (such as AWS EFS, NFSv4, or a distributed volume driver like JuiceFS) to `/data/repos` on both `services/gateway` and `services/api`.
+  - This ensures all API and Gateway replicas share concurrent, consistent read-write access to all bare Git repositories.
+
+### 3. Docker Compose Named Volume Alignment
+For containerized local development or on-premises Docker deployments, use a shared named volume in `docker-compose.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  gateway:
+    build:
+      context: ./services/gateway
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+      - REPOS_ROOT=/data/repos
+      - API_URL=http://api:8080
+    volumes:
+      - gitpub_repos:/data/repos
+
+  api:
+    build:
+      context: ./services/api
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - REPOS_ROOT=/data/repos
+      - SCRATCH_ROOT=/scratch
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgres://gitpub:gitpub@postgres:5432/gitpub
+      - GATEWAY_URL=http://gateway:8081
+    volumes:
+      - gitpub_repos:/data/repos
+
+volumes:
+  gitpub_repos:
+    driver: local
+```
+
+### 4. Storage Environment Variables Reference
+| Variable | Default Value (Local Dev) | Container / Production Value | Description |
+|---|---|---|---|
+| `REPOS_ROOT` | `<monorepo_root>/data/repos` | `/data/repos` | Path to persistent storage containing bare Git repositories (`<owner>/<repo>.git`) |
+| `SCRATCH_ROOT` | `<monorepo_root>/scratch` | `/scratch` | Path to ephemeral workspace for temporary PR merges (`temp-merges`) and CI builds (`ci-runs`) |

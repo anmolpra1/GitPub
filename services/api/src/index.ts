@@ -46,11 +46,25 @@ import reposRouter from './routes/repos';
 import pullsRouter from './routes/pulls';
 import ciRouter from './routes/ci';
 
+import { runMigrations } from './db/migrate';
+
 app.use('/api/auth', authRouter);
 app.use('/api/repos', reposRouter);
 app.use('/api/pulls', pullsRouter);
 app.use('/api/ci', ciRouter);
 
-app.listen(port, () => {
-  console.log(`GitPub REST API listening on http://localhost:${port}`);
-});
+async function startServer() {
+  try {
+    await runMigrations();
+
+    app.listen(port, () => {
+      console.log(`GitPub REST API listening on http://localhost:${port}`);
+    });
+  } catch (error: any) {
+    console.error('Fatal: Failed to initialize database migrations on startup:', error.message);
+    process.exit(1);
+  }
+}
+
+startServer();
+

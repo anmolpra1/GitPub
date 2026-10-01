@@ -5,6 +5,7 @@
   "scripts": {
     "api:dev": "npm run dev --prefix services/api",
     "api:check": "cmd /c \"cd services\\api && npx tsc --noEmit\"",
+    "db:migrate": "npm run migrate:up --prefix services/api",
     "gateway:dev": "cmd /c \"cd services\\gateway && go run cmd\\server\\main.go\"",
     "gateway:build": "cmd /c \"cd services\\gateway && go build -o bin\\gateway.exe cmd\\server\\main.go\"",
     "web:dev": "npm run dev --prefix apps/web",
@@ -13,6 +14,8 @@
     "test:smoke": "node scripts/e2e_verify.js"
   },
   "dependencies": {
+    "@neon/config": "^1.7.2",
+    "@neon/env": "^1.4.3",
     "do": "^0.7.1",
     "dotenv": "^17.4.2",
     "puppeteer-core": "^25.11.0"

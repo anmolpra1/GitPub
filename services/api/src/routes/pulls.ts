@@ -9,9 +9,14 @@ import { authenticateJWT, AuthenticatedRequest } from '../middleware/auth';
 const execAsync = promisify(exec);
 const router = Router();
 
-// Resolve root repos directory
-const REPOS_ROOT = path.resolve(__dirname, '..', '..', '..', '..', 'data', 'repos');
-const TEMP_DIR_ROOT = path.resolve(__dirname, '..', '..', '..', '..', 'scratch', 'temp-merges');
+// Resolve root repos directory and scratch directory
+const REPOS_ROOT = process.env.REPOS_ROOT 
+  ? path.resolve(process.env.REPOS_ROOT) 
+  : path.resolve(__dirname, '..', '..', '..', '..', 'data', 'repos');
+const SCRATCH_ROOT = process.env.SCRATCH_ROOT 
+  ? path.resolve(process.env.SCRATCH_ROOT) 
+  : path.resolve(__dirname, '..', '..', '..', '..', 'scratch');
+const TEMP_DIR_ROOT = path.join(SCRATCH_ROOT, 'temp-merges');
 
 // Helper to run commands
 async function runGit(cmd: string, repoPath: string) {
@@ -209,6 +214,65 @@ router.post('/:id/merge', authenticateJWT, async (req: AuthenticatedRequest, res
   } catch (error) {
     console.error('Merge PR database/operation error:', error);
     res.status(500).json({ error: 'Failed to process Pull Request merge' });
+  }
+});
+
+// GET /api/pulls/:id/comments - List comments for a PR
+router.get('/:id/comments', authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
+  const prId = req.params.id;
+
+  try {
+    const result = await pool.query(
+      `SELECT c.*, u.username as author_name 
+       FROM pr_comments c 
+       JOIN users u ON c.author_id = u.id 
+       WHERE c.pr_id = $1 
+       ORDER BY c.created_at ASC`,
+      [prId]
+    );
+
+    res.json({ comments: result.rows });
+  } catch (error) {
+    console.error('List PR comments error:', error);
+    res.status(500).json({ error: 'Failed to retrieve PR comments' });
+  }
+});
+
+// POST /api/pulls/:id/comments - Add a new comment to a PR
+router.post('/:id/comments', authenticateJWT, async (req: AuthenticatedRequest, res: Response) => {
+  const prId = req.params.id;
+  const user = req.user;
+  const { body } = req.body;
+
+  if (!user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  if (!body || !body.trim()) {
+    return res.status(400).json({ error: 'Comment body is required' });
+  }
+
+  try {
+    // Verify PR exists
+    const prCheck = await pool.query('SELECT id FROM pull_requests WHERE id = $1', [prId]);
+    if (!prCheck.rows[0]) {
+      return res.status(404).json({ error: 'Pull Request not found' });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO pr_comments (pr_id, author_id, body) 
+       VALUES ($1, $2, $3) 
+       RETURNING *`,
+      [prId, user.id, body.trim()]
+    );
+
+    const comment = result.rows[0];
+    comment.author_name = user.username;
+
+    res.status(201).json({ message: 'Comment added successfully', comment });
+  } catch (error) {
+    console.error('Create PR comment error:', error);
+    res.status(500).json({ error: 'Failed to add comment' });
   }
 });
 

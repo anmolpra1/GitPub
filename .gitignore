@@ -38,3 +38,6 @@ Thumbs.db
 # User specific command references
 IDEcmd.md
 
+.neon
+.agents/
+skills-lock.json

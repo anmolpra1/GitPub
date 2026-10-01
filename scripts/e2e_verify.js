@@ -239,6 +239,25 @@ async function runE2E() {
     }
     console.log(`  -> Diff computed successfully (${diffRes.body.diff.split('\n').length} lines).`);
 
+    console.log('  Adding PR code review comment...');
+    const commentRes = await request(`${API_BASE}/pulls/${prId}/comments`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, {
+      comment: 'Looks great! Approved after CI verification.'
+    });
+    if (commentRes.status !== 201 || !commentRes.body.comment) {
+      throw new Error(`PR comment addition failed: ${JSON.stringify(commentRes.body)}`);
+    }
+
+    const getCommentsRes = await request(`${API_BASE}/pulls/${prId}/comments`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (getCommentsRes.status !== 200 || !Array.isArray(getCommentsRes.body.comments) || getCommentsRes.body.comments.length === 0) {
+      throw new Error(`PR comments retrieval failed: ${JSON.stringify(getCommentsRes.body)}`);
+    }
+    console.log('  -> PR comment created and retrieved successfully.');
+
     console.log('  Merging Pull Request...');
     const mergeRes = await request(`${API_BASE}/pulls/${prId}/merge`, {
       method: 'POST',
@@ -248,6 +267,37 @@ async function runE2E() {
       throw new Error(`PR merge failed: ${JSON.stringify(mergeRes.body)}`);
     }
     console.log('  -> PR successfully merged into main branch!\n');
+
+    // 9. Verify Repository Ref-Aware Browser Endpoints (Phase 2)
+    console.log('[9/9] Verifying Repository Ref-Aware Browser Endpoints...');
+    const repoDetail = await request(`${API_BASE}/repos/${testUsername}/${repoName}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (repoDetail.status !== 200 || repoDetail.body.repository?.name !== repoName) {
+      throw new Error(`Failed to fetch repo detail: ${JSON.stringify(repoDetail.body)}`);
+    }
+
+    const branches = await request(`${API_BASE}/repos/${testUsername}/${repoName}/branches`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (branches.status !== 200 || !Array.isArray(branches.body.branches)) {
+      throw new Error(`Failed to fetch branches: ${JSON.stringify(branches.body)}`);
+    }
+
+    const files = await request(`${API_BASE}/repos/${testUsername}/${repoName}/files?ref=main`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (files.status !== 200 || !Array.isArray(files.body.files)) {
+      throw new Error(`Failed to fetch files: ${JSON.stringify(files.body)}`);
+    }
+
+    const commits = await request(`${API_BASE}/repos/${testUsername}/${repoName}/commits?ref=main`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (commits.status !== 200 || !Array.isArray(commits.body.commits) || commits.body.commits.length === 0) {
+      throw new Error(`Failed to fetch commits: ${JSON.stringify(commits.body)}`);
+    }
+    console.log('  -> Ref-aware endpoints (detail, branches, files, commits) verified.\n');
 
     console.log('====================================================');
     console.log('  🎉 ALL POST-BUILD CHECKS & E2E TESTS PASSED!      ');

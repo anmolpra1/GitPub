@@ -1,11 +1,16 @@
 import { Queue, Worker, Job } from 'bullmq';
 import IORedis from 'ioredis';
-import { spawn, exec } from 'child_process';
+import { spawn, exec, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
 import yaml from 'yaml';
+import { StringDecoder } from 'string_decoder';
+import { EventEmitter } from 'events';
 import pool from '../db';
+
+export const ciLogEvents = new EventEmitter();
+ciLogEvents.setMaxListeners(200);
 
 const execAsync = promisify(exec);
 const redisConnection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
@@ -14,10 +19,125 @@ const redisConnection = new IORedis(process.env.REDIS_URL || 'redis://localhost:
 
 export const ciQueue = new Queue('ci-runs', { connection: redisConnection });
 
-const TEMP_CI_ROOT = path.resolve(__dirname, '..', '..', '..', '..', 'scratch', 'ci-runs');
+// Standardize REPOS_ROOT and SCRATCH_ROOT to respect environment variables
+export const REPOS_ROOT = process.env.REPOS_ROOT 
+  ? path.resolve(process.env.REPOS_ROOT) 
+  : path.resolve(__dirname, '..', '..', '..', '..', 'data', 'repos');
+export const SCRATCH_ROOT = process.env.SCRATCH_ROOT 
+  ? path.resolve(process.env.SCRATCH_ROOT) 
+  : path.resolve(__dirname, '..', '..', '..', '..', 'scratch');
+const TEMP_CI_ROOT = path.join(SCRATCH_ROOT, 'ci-runs');
+
+/**
+ * BuildLogBuffer batches incoming stdout/stderr chunks and periodically flushes
+ * them to PostgreSQL, guaranteeing sequential writes and complete flush before job exit.
+ */
+export class BuildLogBuffer {
+  private runId: number;
+  private flushIntervalMs: number;
+  private maxBufferSize: number;
+  private buffer: string[] = [];
+  private currentBufferedBytes = 0;
+  private timer: NodeJS.Timeout | null = null;
+  private activeFlushPromise: Promise<void> | null = null;
+  private decoder = new StringDecoder('utf-8');
+  private closed = false;
+
+  constructor(runId: number, flushIntervalMs = 500, maxBufferSize = 65536) {
+    this.runId = runId;
+    this.flushIntervalMs = flushIntervalMs;
+    this.maxBufferSize = maxBufferSize;
+
+    this.timer = setInterval(() => {
+      this.flush().catch((err) => {
+        console.error(`[BuildLogBuffer] Interval flush error for CI run #${this.runId}:`, err);
+      });
+    }, this.flushIntervalMs);
+
+    if (this.timer && typeof this.timer.unref === 'function') {
+      this.timer.unref();
+    }
+  }
+
+  public append(chunk: string | Buffer): void {
+    if (!chunk || this.closed) return;
+    const str = typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) ? this.decoder.write(chunk) : String(chunk);
+    if (!str) return;
+
+    this.buffer.push(str);
+    this.currentBufferedBytes += Buffer.byteLength(str, 'utf-8');
+
+    // Flush immediately if buffer exceeds threshold and no flush is currently active
+    if (this.currentBufferedBytes >= this.maxBufferSize && !this.activeFlushPromise) {
+      this.flush().catch((err) => {
+        console.error(`[BuildLogBuffer] Threshold flush error for CI run #${this.runId}:`, err);
+      });
+    }
+  }
+
+  public async flush(): Promise<void> {
+    while (this.activeFlushPromise) {
+      await this.activeFlushPromise;
+    }
+
+    if (this.buffer.length === 0) {
+      return;
+    }
+
+    const batch = this.buffer.join('');
+    this.buffer = [];
+    this.currentBufferedBytes = 0;
+
+    this.activeFlushPromise = (async () => {
+      try {
+        await pool.query(
+          `UPDATE ci_runs 
+           SET log = COALESCE(log, '') || $1 
+           WHERE id = $2`,
+          [batch, this.runId]
+        );
+        ciLogEvents.emit(`log:${this.runId}`, { chunk: batch, status: 'running' });
+      } catch (err) {
+        console.error(`[BuildLogBuffer] Database write error for CI run #${this.runId}:`, err);
+      } finally {
+        this.activeFlushPromise = null;
+      }
+    })();
+
+    await this.activeFlushPromise;
+  }
+
+  public async flushAndClose(): Promise<void> {
+    this.closed = true;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+
+    // Flush remaining decoded characters if any
+    const trailing = this.decoder.end();
+    if (trailing) {
+      this.buffer.push(trailing);
+      this.currentBufferedBytes += Buffer.byteLength(trailing, 'utf-8');
+    }
+
+    // Wait for in-flight write to complete and drain buffer
+    while (this.activeFlushPromise || this.buffer.length > 0) {
+      await this.flush();
+    }
+  }
+
+  public getBufferedBytes(): number {
+    return this.currentBufferedBytes;
+  }
+
+  public isClosed(): boolean {
+    return this.closed;
+  }
+}
 
 // Database helper to append logs and update status
-async function updateRun(runId: number, status: string, logChunk?: string, finished = false) {
+export async function updateRun(runId: number, status: string, logChunk?: string, finished = false) {
   try {
     if (logChunk) {
       await pool.query(
@@ -28,6 +148,7 @@ async function updateRun(runId: number, status: string, logChunk?: string, finis
          WHERE id = $4`,
         [status, logChunk, finished ? new Date() : null, runId]
       );
+      ciLogEvents.emit(`log:${runId}`, { chunk: logChunk, status, finished });
     } else {
       await pool.query(
         `UPDATE ci_runs 
@@ -36,6 +157,10 @@ async function updateRun(runId: number, status: string, logChunk?: string, finis
          WHERE id = $3`,
         [status, finished ? new Date() : null, runId]
       );
+      ciLogEvents.emit(`log:${runId}`, { status, finished });
+    }
+    if (finished) {
+      ciLogEvents.emit(`finish:${runId}`, { status, finished: true });
     }
   } catch (err) {
     console.error(`Error updating CI run ${runId} in database:`, err);
@@ -92,6 +217,8 @@ export const ciWorker = new Worker(
     const tempWorkspacePath = path.join(TEMP_CI_ROOT, `${runId}_${Date.now()}`);
     await fs.promises.mkdir(TEMP_CI_ROOT, { recursive: true });
 
+    let logBuffer: BuildLogBuffer | null = null;
+
     try {
       await updateRun(runId, 'running', `[CI System] Cloning workspace...\n`);
       // Clone bare repository to workspace
@@ -111,19 +238,7 @@ export const ciWorker = new Worker(
         dockerAvailable = false;
       }
 
-      if (dockerAvailable) {
-        // Check if gitpub-ci-runner:latest exists, if not build it
-        try {
-          await execAsync('docker image inspect gitpub-ci-runner:latest');
-        } catch {
-          await updateRun(runId, 'running', `[CI System] Building gitpub-ci-runner:latest image...\n`);
-          const dockerRunnerDir = path.resolve(__dirname, '..', '..', '..', '..', 'infra', 'docker-runner');
-          await execAsync(`docker build -t gitpub-ci-runner:latest "${dockerRunnerDir}"`);
-          await updateRun(runId, 'running', `[CI System] Sandbox runner image ready.\n\n`);
-        }
-      }
-
-      const normalizedMountPath = tempWorkspacePath.replace(/\\/g, '/');
+      let child: ChildProcess;
 
       if (!dockerAvailable) {
         const fallbackAllowed = process.env.ALLOW_LOCAL_CI_FALLBACK === 'true';
@@ -138,45 +253,40 @@ export const ciWorker = new Worker(
         }
 
         await updateRun(runId, 'running', `[CI System Notice] Docker offline. Executing in local development fallback mode...\n\n`);
-        const fallbackProcess = spawn(process.platform === 'win32' ? 'cmd.exe' : 'sh', 
+        child = spawn(
+          process.platform === 'win32' ? 'cmd.exe' : 'sh', 
           process.platform === 'win32' ? ['/c', commandString] : ['-c', commandString],
           { cwd: tempWorkspacePath }
         );
-
-        fallbackProcess.stdout.on('data', async (data) => {
-          await updateRun(runId, 'running', data.toString());
-        });
-
-        fallbackProcess.stderr.on('data', async (data) => {
-          await updateRun(runId, 'running', data.toString());
-        });
-
-        const exitCode = await new Promise<number>((resolve) => {
-          fallbackProcess.on('close', (code) => resolve(code ?? 0));
-          fallbackProcess.on('error', () => resolve(1));
-        });
-
-        if (exitCode === 0) {
-          await updateRun(runId, 'success', `\n[CI System] Build succeeded! (Exit code: 0)\n`, true);
-        } else {
-          await updateRun(runId, 'failed', `\n[CI System] Build failed with exit code ${exitCode}.\n`, true);
+      } else {
+        // Auto-build gitpub-ci-runner:latest image if missing
+        try {
+          await execAsync('docker image inspect gitpub-ci-runner:latest');
+        } catch {
+          await updateRun(runId, 'running', `[CI System] Building gitpub-ci-runner:latest image...\n`);
+          const dockerRunnerDir = path.resolve(__dirname, '..', '..', '..', '..', 'infra', 'docker-runner');
+          await execAsync(`docker build -t gitpub-ci-runner:latest "${dockerRunnerDir}"`);
+          await updateRun(runId, 'running', `[CI System] Sandbox runner image ready.\n\n`);
         }
-        return;
+
+        const normalizedMountPath = tempWorkspacePath.replace(/\\/g, '/');
+        const dockerArgs = [
+          'run', '--rm',
+          '--user', '1000:1000',
+          '--cap-drop=ALL',
+          '--security-opt=no-new-privileges',
+          '--memory=1024m', '--cpus=1.0',
+          '--network', 'none',
+          '-v', `${normalizedMountPath}:/workspace`,
+          'gitpub-ci-runner:latest',
+          'sh', '-c', `cd /workspace && ${commandString}`
+        ];
+        child = spawn('docker', dockerArgs);
       }
 
-      const dockerArgs = [
-        'run', '--rm',
-        '--user', '1000:1000',
-        '--cap-drop=ALL',
-        '--security-opt=no-new-privileges',
-        '--memory=1024m', '--cpus=1.0',
-        '--network', 'none',
-        '-v', `${normalizedMountPath}:/workspace`,
-        'gitpub-ci-runner:latest',
-        'sh', '-c', `cd /workspace && ${commandString}`
-      ];
-
-      const child = spawn('docker', dockerArgs);
+      // Initialize log buffer for process output (500ms periodic flush, 64KB threshold)
+      const flushIntervalMs = Number(process.env.CI_LOG_FLUSH_INTERVAL_MS) || 500;
+      logBuffer = new BuildLogBuffer(runId, flushIntervalMs, 65536);
 
       // Watchdog timeout (10 minutes = 600s per SRS §6)
       const timeoutMs = 600000;
@@ -184,15 +294,14 @@ export const ciWorker = new Worker(
       const timer = setTimeout(() => {
         timedOut = true;
         child.kill('SIGKILL');
-        updateRun(runId, 'failed', `\n[CI System Error] Execution exceeded 10-minute timeout limit. Terminated.\n`, true);
       }, timeoutMs);
 
-      child.stdout.on('data', async (data) => {
-        await updateRun(runId, 'running', data.toString());
+      child.stdout?.on('data', (data) => {
+        logBuffer?.append(data);
       });
 
-      child.stderr.on('data', async (data) => {
-        await updateRun(runId, 'running', data.toString());
+      child.stderr?.on('data', (data) => {
+        logBuffer?.append(data);
       });
 
       const exitCode = await new Promise<number>((resolve) => {
@@ -200,26 +309,36 @@ export const ciWorker = new Worker(
           clearTimeout(timer);
           resolve(code ?? 0);
         });
-        child.on('error', () => {
+        child.on('error', (err) => {
           clearTimeout(timer);
+          console.error(`[CI Worker] Process execution error for CI run #${runId}:`, err);
           resolve(125);
         });
       });
 
-      if (!timedOut) {
-        if (exitCode === 0) {
-          await updateRun(runId, 'success', `\n[CI System] Build succeeded! (Exit code: 0)\n`, true);
-        } else {
-          await updateRun(runId, 'failed', `\n[CI System] Build failed with exit code ${exitCode}.\n`, true);
-        }
+      // 6. Guarantee all buffered logs are flushed to PostgreSQL before finalizing status
+      await logBuffer.flushAndClose();
+      logBuffer = null;
+
+      // 7. Atomically finalize run status and append final result log
+      if (timedOut) {
+        await updateRun(runId, 'failed', `\n[CI System Error] Execution exceeded 10-minute timeout limit. Terminated.\n`, true);
+      } else if (exitCode === 0) {
+        await updateRun(runId, 'success', `\n[CI System] Build succeeded! (Exit code: 0)\n`, true);
+      } else {
+        await updateRun(runId, 'failed', `\n[CI System] Build failed with exit code ${exitCode}.\n`, true);
       }
 
     } catch (buildError: any) {
       console.error('CI pipeline runner failed:', buildError);
-      await updateRun(runId, 'failed', `\n[CI System Error] Execution failed: ${buildError.message}\n`, true);
+      if (logBuffer) {
+        await logBuffer.flushAndClose().catch(() => {});
+      }
+      const errorMsg = buildError?.message || String(buildError);
+      await updateRun(runId, 'failed', `\n[CI System Error] Execution failed: ${errorMsg}\n`, true);
     } finally {
       // Clean up workspace files
-      fs.promises.rm(tempWorkspacePath, { recursive: true, force: true }).catch(err => {
+      fs.promises.rm(tempWorkspacePath, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(err => {
         console.error('Failed to cleanup CI temp workspace:', err);
       });
     }

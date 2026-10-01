@@ -44,6 +44,8 @@ RUN mkdir -p /data/repos /scratch
 
 ENV PORT=8080
 ENV NODE_ENV=production
+ENV REPOS_ROOT=/data/repos
+ENV SCRATCH_ROOT=/scratch
 
 EXPOSE 8080
 

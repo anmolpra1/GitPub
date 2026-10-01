@@ -1,13 +1,7 @@
 services:
-  postgres:
-    image: postgres:16
-    environment:
-      POSTGRES_USER: gitpub
-      POSTGRES_PASSWORD: devpass
-      POSTGRES_DB: gitpub
-    ports:
-      - "5432:5432"
   redis:
     image: redis:7-alpine
+    container_name: gitpub-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
