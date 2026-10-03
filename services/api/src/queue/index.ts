@@ -17,17 +17,25 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 const execAsync = promisify(exec);
 const redisConnection = new IORedis(REDIS_URL, {
   maxRetriesPerRequest: null,
+  enableOfflineQueue: false,
+});
+redisConnection.on('error', (err) => {
+  // Gracefully log without crashing
 });
 
 export const redisPublisher = new IORedis(REDIS_URL, {
   maxRetriesPerRequest: null,
   lazyConnect: true,
+  enableOfflineQueue: false,
 });
+redisPublisher.on('error', () => {});
 
 export const redisSubscriber = new IORedis(REDIS_URL, {
   maxRetriesPerRequest: null,
   lazyConnect: true,
+  enableOfflineQueue: false,
 });
+redisSubscriber.on('error', () => {});
 
 redisPublisher.connect().catch((err) => {
   console.log('[Redis Pub/Sub] Publisher running in local fallback mode:', err.message);
